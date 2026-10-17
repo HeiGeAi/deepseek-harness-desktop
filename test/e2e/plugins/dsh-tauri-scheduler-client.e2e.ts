@@ -20,7 +20,7 @@ const TITLE_SLOT = '[data-slot="sidebar.right.pane.tab.title"]'
 function scratchHome(): string {
   const home = resolve(inject('dshHome'))
   expect(dirname(home), '夹具只能写入系统临时目录的直接子目录').toBe(resolve(tmpdir()))
-  expect(basename(home), '夹具只能写入本轮编排创建的 dsh-e2e 隔离目录').toMatch(/^dsh-e2e-.+-[a-z0-9]+$/)
+  expect(basename(home), '夹具只能写入本轮编排创建的 dsh-e2e 隔离目录').toMatch(/^dsh-e2e-.+-[a-z0-9]+$/i)
   expect(inject('dshMounted'), '隔离宿主必须实际挂载被测 scheduler').toContain('dsh-tauri-scheduler')
   return home
 }

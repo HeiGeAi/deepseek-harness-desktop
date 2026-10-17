@@ -194,7 +194,11 @@ export async function startDesktopApp(options: StartDesktopAppOptions = {}): Pro
       }
     }
 
-    await waitForPortRelease(WEBDRIVER_PORT, 20)
+    await Promise.all([
+      killOrphanHarness(cacheDir),
+      waitForPortRelease(WEBDRIVER_PORT, 20),
+    ])
+    await waitForPortRelease(APP_PORT, 20)
 
     if (keepHome || stopOptions.keepHome) {
       log(`保留 scratch home：${home}`)
@@ -271,6 +275,18 @@ async function waitForPortRelease(port: number, maxAttempts = 20): Promise<void>
     await sleep(delay)
     delay = Math.min(delay * 1.5, 300) // 动态退避
   }
+}
+
+/**
+ * 清理本车道遗留的 dsh 服务进程（其命令行携带下载缓存目录）。
+ */
+async function killOrphanHarness(cacheDir: string): Promise<void> {
+  if (process.platform !== 'win32')
+    return
+
+  const safePattern = cacheDir.replace(/'/g, '\'\'')
+  const script = `Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*${safePattern}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`
+  await execPowerShell(script)
 }
 
 /** 执行 PowerShell 命令的轻量辅助封装。 */

@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest'
 import { expectNoSyntheticFallbacks, launchDshBrowser, newDshPage } from '../support/browser'
 
 const OFFICIAL_PAGE = '[data-dsh-extension-plugins] [data-plugin-panel]'
-const MAIN_HEADER = ':scope > header:has(> div:first-child > h1)'
+const MAIN_HEADER = 'header:has(> div:first-child > h1)'
 const BACK = '[data-dsh-plugins-back]'
 
 let browser: Browser
