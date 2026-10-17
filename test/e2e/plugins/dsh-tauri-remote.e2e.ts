@@ -14,6 +14,7 @@ import { Server } from 'ssh2'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { clearHostRuntime } from '../../../packages/dsh-tauri-remote/src/host/config/runtime'
 import { MachineId } from '../../../packages/dsh-tauri-remote/src/host/types/index'
+import { RECOMMENDED_DSH_VERSION } from '../../../packages/dsh-tauri-remote/src/host/utils/version'
 import { bootHarness, waitFor } from '../support/ssh'
 
 /** One freshly generated RSA key in PKCS#1 PEM form (what ssh2 parses natively). */
@@ -629,6 +630,24 @@ describe('e2e outbound gateway (loopback ssh2 protocol server)', () => {
             state.commands.push(command)
             if (command.includes('grep -oE') && command.includes('token=')) {
               stream.write(`${TOKEN}\n`)
+              stream.exit(0)
+              stream.end()
+              return
+            }
+            if (command.includes('REMOTE_DSH_LISTENER_PACKAGE')) {
+              stream.write(JSON.stringify({ name: '@deepseek-ai/dsh', version: RECOMMENDED_DSH_VERSION }))
+              stream.exit(0)
+              stream.end()
+              return
+            }
+            if (command.includes('REMOTE_DSH_LISTENER_PID')) {
+              stream.write([
+                'Linux',
+                '4242',
+                '/opt/remote-dsh',
+                '1760000000:987654',
+                '/usr/bin/node\0/opt/remote-dsh/node_modules/@deepseek-ai/dsh/lib/bin.js\0',
+              ].join('\n'))
               stream.exit(0)
               stream.end()
               return

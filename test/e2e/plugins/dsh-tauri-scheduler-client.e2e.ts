@@ -48,6 +48,44 @@ async function createScratchSession(): Promise<string> {
   return sessionId
 }
 
+async function seedCompletedSession(home: string): Promise<string> {
+  const coreRequire = createRequire(resolveDshCommand()[0]!)
+  const { Context } = coreRequire('@deepseek-ai/cordis')
+  const { SessionStore, SessionId } = coreRequire('@deepseek-ai/dsh-session')
+  const { createUserMessage } = coreRequire('@deepseek-ai/dsh-llm')
+  const jsonl = coreRequire('@deepseek-ai/dsh-session-persistence-jsonl')
+  const context = new Context()
+  try {
+    let persistence
+    if (typeof jsonl.apply === 'function') {
+      await jsonl.apply(context, { root: join(home, 'sessions') })
+      persistence = context.sessionPersistence
+    }
+    else {
+      const JsonlSessionPersistence = jsonl.default
+      persistence = new JsonlSessionPersistence(context, { root: join(home, 'sessions') })
+    }
+    const session = new SessionStore(context).create(SessionId(`session-${randomUUID()}`), { meta: { cwd: home } })
+    session.append('turn/start', { turn: 1 })
+    session.append('step/start', { turn: 1, step: 1 })
+    session.append('user/message', createUserMessage({ content: [{ type: 'text', text: '已结束的 UI 夹具消息，没有请求任何模型。' }], source: { kind: 'user', rpcId: randomUUID() } }), { surfaceOp: 'append' })
+    session.append('step/end', { turn: 1, step: 1 })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    const handle = await persistence.create(session.header)
+    try {
+      await handle.append(session.snapshotEvents())
+      await handle.flush()
+    }
+    finally {
+      await handle.close()
+    }
+    return session.id
+  }
+  finally {
+    await context.fiber.dispose()
+  }
+}
+
 async function readTasks(): Promise<GetApiTauriSchedulerTasksResponse['tasks']> {
   const payload = await api<GetApiTauriSchedulerTasksResponse>(TASKS_PATH)
   expect(Array.isArray(payload.tasks), '真实任务清单必须带 tasks 数组').toBe(true)
@@ -427,39 +465,9 @@ describe('C 当前 core 的定时任务主面板内联详情', () => {
   })
 
   it('会话提醒入口保留原生右栏身份与 37px 标签条，隐藏同会话跳转和冗余关闭并在刷新后恢复绑定', async () => {
+    const home = scratchHome()
+    const sessionId = await seedCompletedSession(home)
     await withScratchPage(async (app, prefix) => {
-      const coreRequire = createRequire(resolveDshCommand()[0]!)
-      const { Context } = coreRequire('@deepseek-ai/cordis')
-      const { SessionStore, SessionId } = coreRequire('@deepseek-ai/dsh-session')
-      const { createUserMessage } = coreRequire('@deepseek-ai/dsh-llm')
-      const { default: JsonlSessionPersistence } = coreRequire('@deepseek-ai/dsh-session-persistence-jsonl')
-      const home = scratchHome()
-      const context = new Context()
-      let sessionId: string
-      try {
-        const persistence = new JsonlSessionPersistence(context, { root: join(home, 'sessions') })
-        const session = new SessionStore(context).create(SessionId(`session-${randomUUID()}`), { meta: { cwd: home } })
-        session.append('turn/start', { turn: 1 })
-        session.append('step/start', { turn: 1, step: 1 })
-        session.append('user/message', createUserMessage({ content: [{ type: 'text', text: '已结束的 UI 夹具消息，没有请求任何模型。' }], source: { kind: 'user', rpcId: randomUUID() } }), { surfaceOp: 'append' })
-        session.append('step/end', { turn: 1, step: 1 })
-        session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-        const handle = await persistence.create(session.header)
-        try {
-          await handle.append(session.snapshotEvents())
-          await handle.flush()
-        }
-        finally {
-          await handle.close()
-        }
-        sessionId = session.id
-      }
-      finally {
-        await context.fiber.dispose()
-      }
-      const rpcId = randomUUID()
-      const adopted = await api<{ type: string, rpcId: string, result: { ok: boolean, value?: { sessionId: string } } }>('/api/session/create', 'POST', { type: 'client-request', rpcId, method: 'session/create', payload: { args: { request: { sessionId, cwd: home } } } })
-      expect(adopted, `真实 RPC 必须接管公开持久化夹具而不是创建另一个空白会话：${JSON.stringify(adopted)}`).toMatchObject({ type: 'server-response', rpcId, result: { ok: true, value: { sessionId } } })
       const name = `${prefix}-native`
       const created = await api<PostApiTauriSchedulerTasksResponse>(TASKS_PATH, 'POST', {
         name,

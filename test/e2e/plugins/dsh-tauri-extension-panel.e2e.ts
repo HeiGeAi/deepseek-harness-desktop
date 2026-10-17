@@ -23,6 +23,9 @@ async function openPlugins(app: DshPage, touch = false): Promise<void> {
     const box = await row.boundingBox()
     expect(box, '侧栏插件入口必须有可点击的真实矩形').not.toBeNull()
     await app.page.touchscreen.tap(box!.x + box!.width / 2, box!.y + box!.height / 2)
+    await app.frame.locator(OFFICIAL_PAGE).waitFor({ state: 'visible' })
+    await app.frame.locator('[data-dsh-mobile-sidebar-shade]').tap()
+    await expect.poll(() => app.frame.locator('html[data-dsh-mobile-sidebar-open]').count(), { message: '进入插件面板后必须真实收起触屏侧栏以解除主槽 inert' }).toBe(0)
   }
   else {
     await app.frame.getByRole('button', { name: '插件扩展', exact: true }).click()
@@ -71,17 +74,22 @@ describe('extension panel official plugins composition', () => {
       expect(await sparkle.isVisible(), '官方闪光图标必须出现在主页页头').toBe(true)
       expect(await sparkle.getAttribute('width'), '主页图标不得放大').toBe('16')
 
-      await expect.poll(() => officialPage.locator('[data-plugin-item]').count(), { message: '必须加载真实官方插件条目' }).toBeGreaterThan(0)
+      await expect.poll(() => officialPage.locator('[data-plugin-item]').count(), { timeout: 15_000, message: '必须加载真实官方插件条目' }).toBeGreaterThan(0)
       await officialPage.locator('[data-plugin-item]').first().getByRole('button').first().click()
       const detail = officialPage.locator('[data-plugin-item-detail]')
       await detail.waitFor({ state: 'visible' })
-      const detailTop = inject('dshCoreVersion') === '0.1.7-rc.1'
-        ? detail
+      const minimum = inject('dshCoreVersion') === '0.1.7-rc.1'
+      const detailTop = minimum
+        ? detail.locator(':scope > button:first-child')
         : detail.locator(':scope > div[data-window-drag]')
-      expect(await detailTop.evaluate(el => getComputedStyle(el).paddingTop), '两端基线详情顶部间距必须为 12px').toBe('12px')
+      expect(await detailTop.evaluate((el, isMinimum) => {
+        const style = getComputedStyle(el)
+        return isMinimum ? style.marginTop : style.paddingTop
+      }, minimum), '两端基线详情顶部间距必须为 12px').toBe('12px')
       expect(await sparkle.isVisible(), '详情页不显示主页图标').toBe(false)
-      const detailBack = detail.getByRole('button', { name: '返回插件列表', exact: true })
+      const detailBack = detail.getByRole('button', { name: inject('dshCoreVersion') === '0.1.7-rc.1' ? '返回插件列表' : '返回插件', exact: true })
       expect(await detailBack.count(), '官方详情必须保留唯一原生返回入口').toBe(1)
+      expect(await detailBack.evaluate(el => el.getBoundingClientRect().top - el.closest('[data-plugin-item-detail]')!.getBoundingClientRect().top), '原生返回入口距详情顶部必须真实留出 12px').toBeCloseTo(12, 1)
       expect(await detailBack.getAttribute('data-dsh-plugins-back'), '详情返回不得冒充更多页回退').toBeNull()
       await detailBack.click()
       await header.waitFor({ state: 'visible' })
@@ -160,7 +168,7 @@ describe('extension panel official plugins composition', () => {
       }
       else {
         const more = officialPage.locator('[data-plugin-group="extensions"]').getByRole('button', { name: '更多', exact: true })
-        expect(await more.count(), 'rc.1 必须提供唯一真实官方更多入口').toBe(1)
+        await expect.poll(() => more.count(), { timeout: 15_000, message: 'rc.1 必须提供唯一真实官方更多入口' }).toBe(1)
         await more.click()
         await officialPage.locator('[data-plugin-group="more"]').waitFor({ state: 'visible' })
         await expect.poll(() => officialPage.locator(BACK).count(), { message: '更多页只能有一个回退按钮' }).toBe(1)

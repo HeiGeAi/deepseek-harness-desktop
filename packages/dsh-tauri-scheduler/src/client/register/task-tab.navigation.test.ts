@@ -144,6 +144,20 @@ afterEach(() => {
 })
 
 describe('openTaskTab pending public navigation', () => {
+  it('opens after the mounted session arrives when the core layout has no panelInfo service', async () => {
+    const fixture = runtime()
+    const { panelInfo: _panelInfo, ...layout } = fixture.layout
+    const request = openTaskTab({ ...fixture.input, layout: layout as ILayout })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(fixture.openTab).not.toHaveBeenCalled()
+    expect(fixture.openSession).toHaveBeenCalledExactlyOnceWith('original')
+
+    fixture.mounted.publish(sessionId('original'))
+    await request
+    expect(fixture.openTab).toHaveBeenCalledExactlyOnceWith('scheduleTask', { params: { id: 'task-1', sessionId: 'original' } })
+    expectClean(fixture)
+  })
+
   it('bounds an unresolved openSession promise by the five-second navigation deadline', async () => {
     const fixture = runtime()
     const opening = deferred()
