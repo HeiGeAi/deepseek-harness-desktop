@@ -115,6 +115,9 @@ function fakeCtx(labels: string[]): ClientContext {
       disposers.push(dispose)
       return dispose
     },
+    inject(_names: string[], callback: (scoped: ClientContext) => void) {
+      callback(ctx as unknown as ClientContext)
+    },
     layout: { toggleSidebar: () => {} },
     // 可选服务读取（`ctx.get`）与属性同源：老核心没有 `shortcuts`，属性面也不存在。
     get(name: string): unknown {
@@ -141,9 +144,18 @@ describe('apply', () => {
     const env = stubEnv()
     const ctx = new Context()
     disposers.push(ctx.fiber.dispose)
-    ctx.provide('layout', { toggleSidebar: vi.fn() })
+    const toggleSidebar = vi.fn()
+    ctx.provide('layout', { toggleSidebar })
     ctx.provide('theme', {})
     const bridge = await ctx.plugin({ inject, apply })
+    env.paint()
+    expect(env.sent).toContainEqual({ type: 'dsh://style', sidebar: null, marked: null, frame: null, colorScheme: 'light' })
+    env.dispatch({ type: 'dsh://sidebar:toggle' })
+    expect(toggleSidebar).toHaveBeenCalledTimes(1)
+    const preventDefault = vi.fn()
+    env.keydown({ key: '+', ctrlKey: true, preventDefault } as unknown as KeyboardEvent)
+    expect(env.sent).toContainEqual({ type: 'dsh://zoom-shortcut', action: 'increase' })
+    expect(preventDefault).toHaveBeenCalledTimes(1)
     const openSession = vi.fn()
     const create = vi.fn()
     const startSession = vi.fn()
@@ -171,7 +183,8 @@ describe('apply', () => {
     const env = stubEnv()
     const ctx = new Context()
     disposers.push(ctx.fiber.dispose)
-    ctx.provide('layout', { toggleSidebar: vi.fn() })
+    const toggleSidebar = vi.fn()
+    ctx.provide('layout', { toggleSidebar })
     ctx.provide('theme', {})
     const sessions = { list: { getSnapshot: () => ({ ids: ['target'] }), subscribe: vi.fn() } }
     const removeSessions = ctx.provide('sessions', sessions)
@@ -185,8 +198,15 @@ describe('apply', () => {
     await removeSessions()
     env.sent.length = 0
     env.dispatch({ type: 'dsh://session:open', sessionId: 'target' })
-    expect(env.sent).toEqual([])
+    expect(env.sent.filter(message => message.type === 'dsh://session:opened')).toEqual([])
     expect(openSession).toHaveBeenCalledTimes(1)
+    expect(env.styles).toHaveLength(1)
+    env.dispatch({ type: 'dsh://sidebar:toggle' })
+    expect(toggleSidebar).toHaveBeenCalledTimes(1)
+    const preventDefault = vi.fn()
+    env.keydown({ key: '+', ctrlKey: true, preventDefault } as unknown as KeyboardEvent)
+    expect(env.sent).toContainEqual({ type: 'dsh://zoom-shortcut', action: 'increase' })
+    expect(preventDefault).toHaveBeenCalledTimes(1)
 
     ctx.provide('sessions', { ...sessions })
     await bridge.await()
@@ -195,6 +215,12 @@ describe('apply', () => {
     expect(env.sent.filter(message => message.type === 'dsh://session:opened')).toEqual([
       { type: 'dsh://session:opened', sessionId: 'target' },
     ])
+    await bridge.dispose()
+    expect(env.windowListeners()).toBe(0)
+    expect(env.documentListeners()).toBe(0)
+    expect(env.styles).toEqual([])
+    expect(env.pendingFrames()).toBe(0)
+    expect(vi.getTimerCount()).toBe(0)
   })
 
   it('独立浏览器跳过桌面 effect，不拦截原生缩放快捷键', () => {
