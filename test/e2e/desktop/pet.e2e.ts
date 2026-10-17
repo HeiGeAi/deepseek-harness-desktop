@@ -107,6 +107,7 @@ describe('桌面端桌宠独立窗口', () => {
 
     const retryCount = browser.options.connectionRetryCount
     browser.options.connectionRetryCount = 0
+    let probeError: unknown
     try {
       await expect.poll(async () => {
         try {
@@ -118,12 +119,15 @@ describe('桌面端桌宠独立窗口', () => {
         catch (error) {
           if (error instanceof Error && /\b(?:no such frame|stale element reference)\b/i.test(error.message))
             return false
-          throw error
+          probeError = error
+          return true
         }
         finally {
           await browser.switchFrame(null)
         }
       }, { timeout: 60_000, message: '内嵌 dsh 界面未渲染出官方侧栏' }).toBe(true)
+      if (probeError)
+        throw probeError
     }
     finally {
       browser.options.connectionRetryCount = retryCount
