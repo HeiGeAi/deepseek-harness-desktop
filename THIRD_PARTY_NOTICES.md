@@ -5,6 +5,7 @@
 
 | 插件 | 引用宿主 | 版本 | hash | source | 声明文件 |
 | --- | --- | --- | --- | --- | --- |
+| `test/fixtures` | [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) | `@deepseek-ai/dsh-client-ui-chat@0.2.1-alpha.5` | — | — | [THIRD_PARTY_NOTICES.md](test/fixtures/THIRD_PARTY_NOTICES.md) |
 | `packages/dsh-tauri` | [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) | `dsh-v0.2.1-rc.2` | `687f282e8625c6b8d11ff58211a90524be2e4317` | `source/deepseek-harness` | [THIRD_PARTY_NOTICES.md](packages/dsh-tauri/THIRD_PARTY_NOTICES.md) |
 | `packages/dsh-tauri-model` | [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) | `dsh-v0.2.1-rc.2` | `687f282e8625c6b8d11ff58211a90524be2e4317` | `source/deepseek-harness` | [THIRD_PARTY_NOTICES.md](packages/dsh-tauri-model/THIRD_PARTY_NOTICES.md) |
 | `packages/dsh-tauri-extension` | [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) | `dsh-v0.2.1-rc.2` | `687f282e8625c6b8d11ff58211a90524be2e4317` | `source/deepseek-harness` | [THIRD_PARTY_NOTICES.md](packages/dsh-tauri-extension/THIRD_PARTY_NOTICES.md) |
