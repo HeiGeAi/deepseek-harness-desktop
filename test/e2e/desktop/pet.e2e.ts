@@ -109,7 +109,7 @@ describe('桌面端桌宠独立窗口', () => {
     browser.options.connectionRetryCount = 0
     let probeError: unknown
     try {
-      await expect.poll(async () => {
+      await browser.waitUntil(async () => {
         try {
           await browser.switchFrame(null)
           const currentIframe = await browser.$(SHELL_IFRAME)
@@ -125,7 +125,7 @@ describe('桌面端桌宠独立窗口', () => {
         finally {
           await browser.switchFrame(null)
         }
-      }, { timeout: 60_000, message: '内嵌 dsh 界面未渲染出官方侧栏' }).toBe(true)
+      }, { timeout: 60_000, timeoutMsg: '内嵌 dsh 界面未渲染出官方侧栏' })
       if (probeError)
         throw probeError
     }
