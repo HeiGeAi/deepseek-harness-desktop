@@ -129,6 +129,9 @@ fn create_temp(parent: &Path, original: Option<&Path>) -> io::Result<tempfile::N
 fn reject_parent_acl(parent: &Path) -> io::Result<()> {
     use std::os::fd::AsRawFd;
 
+    const ACL_TYPE_EXTENDED: libc::c_int = 0x100;
+    const ACL_FIRST_ENTRY: libc::c_int = 0;
+
     unsafe extern "C" {
         fn acl_get_fd_np(fd: libc::c_int, kind: libc::c_int) -> *mut libc::c_void;
         fn acl_get_entry(
@@ -139,7 +142,7 @@ fn reject_parent_acl(parent: &Path) -> io::Result<()> {
         fn acl_free(acl: *mut libc::c_void) -> libc::c_int;
     }
     let parent = File::open(parent)?;
-    let acl = unsafe { acl_get_fd_np(parent.as_raw_fd(), 0x100) };
+    let acl = unsafe { acl_get_fd_np(parent.as_raw_fd(), ACL_TYPE_EXTENDED) };
     if acl.is_null() {
         let error = io::Error::last_os_error();
         return if error.raw_os_error() == Some(libc::ENOENT) {
@@ -149,7 +152,7 @@ fn reject_parent_acl(parent: &Path) -> io::Result<()> {
         };
     }
     let mut entry = std::ptr::null_mut();
-    let result = unsafe { acl_get_entry(acl, 0, &mut entry) };
+    let result = unsafe { acl_get_entry(acl, ACL_FIRST_ENTRY, &mut entry) };
     let error = io::Error::last_os_error();
     unsafe { acl_free(acl) };
     if result == 0 {
@@ -433,28 +436,100 @@ mod tests {
     #[test]
     fn macos_rejects_inherited_acl_before_creating_a_temp_and_keeps_original() {
         use std::os::fd::AsRawFd;
+
+        const ACL_TYPE_EXTENDED: libc::c_int = 0x100;
+        const ACL_FIRST_ENTRY: libc::c_int = 0;
+        const ACL_EXTENDED_ALLOW: libc::c_int = 1;
+        const ACL_READ_DATA: libc::c_int = 1 << 1;
+        const ACL_ENTRY_FILE_INHERIT: libc::c_int = 1 << 5;
+        const EVERYONE_GUID: [u8; 16] = [
+            0xab, 0xcd, 0xef, 0xab, 0xcd, 0xef, 0xab, 0xcd, 0xef, 0xab, 0xcd, 0xef, 0x00, 0x00,
+            0x00, 0x0c,
+        ];
+
         unsafe extern "C" {
-            fn acl_from_text(text: *const libc::c_char) -> *mut libc::c_void;
+            fn acl_init(count: libc::c_int) -> *mut libc::c_void;
+            fn acl_create_entry(
+                acl: *mut *mut libc::c_void,
+                entry: *mut *mut libc::c_void,
+            ) -> libc::c_int;
+            fn acl_set_tag_type(entry: *mut libc::c_void, tag: libc::c_int) -> libc::c_int;
+            fn acl_set_qualifier(
+                entry: *mut libc::c_void,
+                qualifier: *const libc::c_void,
+            ) -> libc::c_int;
+            fn acl_get_permset(
+                entry: *mut libc::c_void,
+                permset: *mut *mut libc::c_void,
+            ) -> libc::c_int;
+            fn acl_add_perm(permset: *mut libc::c_void, perm: libc::c_int) -> libc::c_int;
+            fn acl_set_permset(entry: *mut libc::c_void, permset: *mut libc::c_void)
+                -> libc::c_int;
+            fn acl_get_flagset_np(
+                entry: *mut libc::c_void,
+                flagset: *mut *mut libc::c_void,
+            ) -> libc::c_int;
+            fn acl_add_flag_np(flagset: *mut libc::c_void, flag: libc::c_int) -> libc::c_int;
+            fn acl_set_flagset_np(
+                entry: *mut libc::c_void,
+                flagset: *mut libc::c_void,
+            ) -> libc::c_int;
+            fn acl_get_flag_np(flagset: *mut libc::c_void, flag: libc::c_int) -> libc::c_int;
             fn acl_set_fd_np(
                 fd: libc::c_int,
                 acl: *mut libc::c_void,
                 kind: libc::c_int,
             ) -> libc::c_int;
-            fn acl_free(acl: *mut libc::c_void) -> libc::c_int;
+            fn acl_get_fd_np(fd: libc::c_int, kind: libc::c_int) -> *mut libc::c_void;
+            fn acl_get_entry(
+                acl: *mut libc::c_void,
+                entry_id: libc::c_int,
+                entry: *mut *mut libc::c_void,
+            ) -> libc::c_int;
+            fn acl_free(obj: *mut libc::c_void) -> libc::c_int;
         }
+
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("cordis.patch.yml");
         std::fs::write(&path, ORIGINAL).unwrap();
         reject_parent_acl(temp.path()).unwrap();
         write_patch_layer_atomically(&path, "[]\n").unwrap();
+
         let parent = File::open(temp.path()).unwrap();
-        let acl = unsafe {
-            acl_from_text(c"!#acl 1\ngroup:ABCDEFAB-CDEF-ABCD-EFAB-CDEF0000000C:everyone:12:allow:file_inherit:read\n".as_ptr())
-        };
-        assert!(!acl.is_null());
-        let result = unsafe { acl_set_fd_np(parent.as_raw_fd(), acl, 0x100) };
-        unsafe { acl_free(acl) };
-        assert_eq!(result, 0);
+        unsafe {
+            let mut acl = acl_init(1);
+            assert!(!acl.is_null());
+            let mut entry = std::ptr::null_mut();
+            assert_eq!(acl_create_entry(&mut acl, &mut entry), 0);
+            assert_eq!(acl_set_tag_type(entry, ACL_EXTENDED_ALLOW), 0);
+            assert_eq!(
+                acl_set_qualifier(entry, EVERYONE_GUID.as_ptr().cast::<libc::c_void>()),
+                0
+            );
+            let mut permset = std::ptr::null_mut();
+            assert_eq!(acl_get_permset(entry, &mut permset), 0);
+            assert_eq!(acl_add_perm(permset, ACL_READ_DATA), 0);
+            assert_eq!(acl_set_permset(entry, permset), 0);
+            let mut flagset = std::ptr::null_mut();
+            assert_eq!(acl_get_flagset_np(entry, &mut flagset), 0);
+            assert_eq!(acl_add_flag_np(flagset, ACL_ENTRY_FILE_INHERIT), 0);
+            assert_eq!(acl_set_flagset_np(entry, flagset), 0);
+            assert_eq!(acl_set_fd_np(parent.as_raw_fd(), acl, ACL_TYPE_EXTENDED), 0);
+            acl_free(acl);
+
+            let applied = acl_get_fd_np(parent.as_raw_fd(), ACL_TYPE_EXTENDED);
+            assert!(!applied.is_null());
+            let mut applied_entry = std::ptr::null_mut();
+            assert_eq!(
+                acl_get_entry(applied, ACL_FIRST_ENTRY, &mut applied_entry),
+                0
+            );
+            let mut applied_flags = std::ptr::null_mut();
+            assert_eq!(acl_get_flagset_np(applied_entry, &mut applied_flags), 0);
+            assert_eq!(acl_get_flag_np(applied_flags, ACL_ENTRY_FILE_INHERIT), 1);
+            acl_free(applied);
+        }
+
         let error = write_patch_layer_atomically(&path, "- id: secret\n").unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
         assert!(error.to_string().contains("extended ACL"));
