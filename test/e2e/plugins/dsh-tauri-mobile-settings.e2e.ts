@@ -56,6 +56,8 @@ describe('mobile settings official host composition', () => {
       const plus = app.frame.locator('[data-dsh-mobile-new-session]')
       const center = app.frame.locator('[class$="_centerCol"]')
       const shade = app.frame.locator('[data-dsh-mobile-sidebar-shade]')
+      await plus.tap()
+      await expect.poll(() => app.frame.locator('[data-conversation-scroll]').count(), { message: '动画夹具必须通过真实新会话入口挂载会话区', timeout: 15_000 }).toBe(1)
       const initialInput = app.frame.locator('[data-composer-card] [data-composer-input][contenteditable="true"]')
       await initialInput.tap()
       await expect.poll(() => initialInput.evaluate(element => document.activeElement === element), { message: '初始合成器必须可真实触摸聚焦后再开始侧栏交互' }).toBe(true)
