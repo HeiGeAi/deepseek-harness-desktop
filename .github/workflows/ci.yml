@@ -150,9 +150,7 @@ jobs:
       matrix:
         core: [0.2.1-rc.1, 0.1.7-rc.1]
     env:
-      DSH_E2E_DSH_BIN: ${{ runner.temp }}/dsh-cli/node_modules/@deepseek-ai/dsh/lib/bin.js
       DSH_E2E_CORE_VERSION: ${{ matrix.core }}
-      DSH_SCHEDULER_DIAGNOSTICS_DIR: ${{ runner.temp }}/scheduler-diagnostics
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -173,9 +171,13 @@ jobs:
         run: npm install --prefix "$RUNNER_TEMP/dsh-cli" --no-audit --no-fund @deepseek-ai/dsh@${{ matrix.core }}
 
       - name: Plugin L2 full suite
+        env:
+          DSH_E2E_DSH_BIN: ${{ runner.temp }}/dsh-cli/node_modules/@deepseek-ai/dsh/lib/bin.js
         run: node node_modules/vitest/vitest.mjs run --project plugin --sequence.shuffle --sequence.seed=100
 
       - name: Host, settings and official plugin composition stability
+        env:
+          DSH_E2E_DSH_BIN: ${{ runner.temp }}/dsh-cli/node_modules/@deepseek-ai/dsh/lib/bin.js
         run: |
           for seed in 101 102 103 104 105; do
             node node_modules/vitest/vitest.mjs run --project plugin --sequence.shuffle --sequence.seed="$seed" \
@@ -189,6 +191,9 @@ jobs:
           done
 
       - name: Unified scheduler host and right-sidebar stability
+        env:
+          DSH_E2E_DSH_BIN: ${{ runner.temp }}/dsh-cli/node_modules/@deepseek-ai/dsh/lib/bin.js
+          DSH_SCHEDULER_DIAGNOSTICS_DIR: ${{ runner.temp }}/scheduler-diagnostics
         run: |
           for seed in 987 988 989 990 991; do
             node node_modules/vitest/vitest.mjs run --project plugin --sequence.shuffle --sequence.seed="$seed" test/e2e/plugins/dsh-tauri-scheduler.e2e.ts test/e2e/plugins/dsh-tauri-scheduler-client.e2e.ts || exit $?
