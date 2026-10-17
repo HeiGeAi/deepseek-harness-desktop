@@ -61,7 +61,7 @@ elf_versions() {
       for (i = 1; i <= NF; i++)
         if ($i ~ /^GLIBC_[0-9]+(\.[0-9]+)+$/) print $i
     }
-  ' | sed 's/^GLIBC_//' | LC_ALL=C sort -u
+  ' | sed 's/^GLIBC_//' | LC_ALL=C sort -V -u
 }
 
 is_elf() {
@@ -90,8 +90,15 @@ check_elf() {
 }
 
 scan_elf_tree() {
-  local root="$1" kind="$2" file rel tree_elf=0 tree_high=""
+  local root="$1" kind="$2" list file rel tree_elf=0 tree_high=""
   [ -d "$root" ] || die "extracted ${kind} tree is missing: $root"
+  list="$(mktemp -p "$work")"
+  if ! find "$root" -type f -print0 > "$list"; then
+    echo "::error::cannot enumerate files under ${kind}: $root" >&2
+    extract_failures=$((extract_failures + 1))
+    rm -f "$list"
+    return 0
+  fi
   while IFS= read -r -d '' file; do
     rel="${file#"$root"/}"
     check_elf "$file" "${kind}/${rel}"
@@ -100,7 +107,8 @@ scan_elf_tree() {
     if [ -z "$tree_high" ] || version_gt "$CHECK_MAX" "$tree_high"; then
       tree_high="$CHECK_MAX"
     fi
-  done < <(find "$root" -type f -print0)
+  done < "$list"
+  rm -f "$list"
   echo "scanned ${tree_elf} ELF files with GLIBC requirements under ${kind}; highest: ${tree_high:-none} (limit ${max})"
 }
 
