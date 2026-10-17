@@ -45,8 +45,8 @@ const profile: MachineProfile = {
 
 const PKG_REPO = 'dsh-tauri-desk/deepseek-harness-pkg'
 
-const DSH_VERSION = '0.2.1-rc.1'
-const DSH_TAG = 'dsh-0.2.1-rc.1-39009013600'
+const DSH_VERSION = '0.2.1-rc.2'
+const DSH_TAG = 'dsh-0.2.1-rc.2-39022695148'
 const DSH_TGZ = `dsh-${DSH_VERSION}.tgz`
 const NPM_TGZ = `https://registry.npmjs.org/@deepseek-ai/dsh/-/${DSH_TGZ}`
 const MIRROR_TGZ = `https://registry.npmmirror.com/@deepseek-ai/dsh/-/${DSH_TGZ}`
@@ -102,7 +102,7 @@ function stubGithub(): void {
 
 class FakeSession implements RemoteSession {
   commands: string[] = []
-  dshVersion = '0.2.1-rc.1'
+  dshVersion = '0.2.1-rc.2'
 
   constructor(private readonly responder: (command: string, index: number) => RemoteExecResult) {}
 
@@ -297,7 +297,7 @@ describe('planRemoteInstall', () => {
     }))
     if (plan.dsh.kind !== 'pkg-zip')
       throw new Error('expected pkg-zip')
-    expect(plan.dsh.tag).toBe('dsh-0.2.1-rc.1-39009013600')
+    expect(plan.dsh.tag).toBe('dsh-0.2.1-rc.2-39022695148')
     expect(plan.notes.join('\n')).toContain('release 列表获取失败')
   })
 
@@ -594,7 +594,7 @@ describe('install script execution (real POSIX sh)', () => {
     // dsh dist: the npm package layout (package.json + lib/bin.js).
     const dshStage = join(work, 'dsh-stage')
     mkdirSync(join(dshStage, 'package', 'lib'), { recursive: true })
-    writeFileSync(join(dshStage, 'package', 'package.json'), '{"name":"@deepseek-ai/dsh","version":"0.2.1-rc.1"}\n')
+    writeFileSync(join(dshStage, 'package', 'package.json'), '{"name":"@deepseek-ai/dsh","version":"0.2.1-rc.2"}\n')
     writeFileSync(join(dshStage, 'package', 'lib', 'bin.js'), '#!/usr/bin/env node\nvoid 0\n')
     const dshTgz = join(served, DSH_TGZ)
     await promisify(execFile)('tar', ['-czf', dshTgz, '-C', dshStage, 'package'])
@@ -1050,7 +1050,7 @@ describe('credentials copy execution (real POSIX sh)', () => {
 const BOOT_HTML = [
   '<html><head>',
   '<script src="/plugins/??@deepseek-ai/dsh-client-modules/client.js&amp;rev=1"></script>',
-  '</head><body><script>globalThis["__DSH_BOOT__"] = {"release":{"version":"0.2.1-rc.1"},"entries":[{"url":"/plugins/@deepseek-ai/dsh-client-ui-layout/client.js"}]};</script></body></html>',
+  '</head><body><script>globalThis["__DSH_BOOT__"] = {"release":{"version":"0.2.1-rc.2"},"entries":[{"url":"/plugins/@deepseek-ai/dsh-client-ui-layout/client.js"}]};</script></body></html>',
 ].join('')
 
 const BOOTSTRAP = {
