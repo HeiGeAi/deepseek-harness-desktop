@@ -929,6 +929,82 @@ mod tests {
     }
 
     #[test]
+    fn terminating_lifetime_job_reaps_running_probe_descendants() {
+        use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE};
+
+        let node = find_node_on_path().expect("node.exe required for probe tests");
+        let root = tempfile::tempdir().unwrap();
+        let envs = isolated_node_env(root.path());
+        let job = std::sync::Arc::new(ProcessJob::new().unwrap());
+        let gate = Mutex::new(false);
+        let ready = root.path().join("running-probe.pid");
+        let script = format!(
+            "Object.assign(process.env,{});const fs=require('fs');const child=require('child_process').spawn(process.execPath,['-e','setTimeout(()=>process.exit(0),60000)'],{{stdio:'inherit',windowsHide:true,env:{{...process.env,NODE_NO_WARNINGS:'1'}}}});child.once('error',error=>{{throw error}});child.once('spawn',()=>fs.writeFileSync({},String(child.pid)));setTimeout(()=>process.exit(0),60000);",
+            serde_json::to_string(&envs).unwrap(),
+            serde_json::to_string(&ready).unwrap(),
+        );
+        let worker_job = job.clone();
+        let worker = std::thread::spawn(move || {
+            probe_in_job(
+                &node,
+                &["--no-warnings".into(), "-e".into(), script.into()],
+                &worker_job,
+                &gate,
+                true,
+            )
+        });
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let pid = loop {
+            if let Ok(text) = std::fs::read_to_string(&ready) {
+                if let Ok(pid) = text.parse::<u32>() {
+                    break pid;
+                }
+            }
+            assert!(
+                Instant::now() < deadline,
+                "running probe descendant did not start"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        let descendant = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
+        assert!(
+            !descendant.is_null(),
+            "open descendant: {}",
+            io::Error::last_os_error()
+        );
+        let descendant = unsafe { OwnedHandle::from_raw_handle(descendant) };
+        assert_eq!(
+            unsafe { WaitForSingleObject(descendant.as_raw_handle(), 0) },
+            WAIT_TIMEOUT
+        );
+        job.terminate().expect("terminate lifetime job");
+        let output = worker
+            .join()
+            .unwrap()
+            .expect("probe must return after lifetime job termination");
+        assert!(!output.status.success());
+        assert_eq!(
+            unsafe { WaitForSingleObject(descendant.as_raw_handle(), 5000) },
+            WAIT_OBJECT_0,
+            "lifetime job termination must reap nested probe descendants"
+        );
+        let mut accounting = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
+        assert_ne!(
+            unsafe {
+                QueryInformationJobObject(
+                    job.handle.as_raw_handle(),
+                    JobObjectBasicAccountingInformation,
+                    &mut accounting as *mut _ as *mut core::ffi::c_void,
+                    std::mem::size_of_val(&accounting) as u32,
+                    std::ptr::null_mut(),
+                )
+            },
+            0
+        );
+        assert_eq!(accounting.ActiveProcesses, 0);
+    }
+
+    #[test]
     fn probe_reuse_keeps_lifetime_job_assignable_under_concurrency() {
         let node = find_node_on_path().expect("node.exe required for probe tests");
         let root = tempfile::tempdir().unwrap();
