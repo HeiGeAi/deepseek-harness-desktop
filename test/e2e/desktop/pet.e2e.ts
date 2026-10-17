@@ -105,16 +105,31 @@ describe('桌面端桌宠独立窗口', () => {
     await completePreinstall(browser, ASSEMBLY_TIMEOUT_MS)
     await iframe.waitForDisplayed({ timeout: ASSEMBLY_TIMEOUT_MS })
 
-    // 切入 iframe 安装收集器并等待 UI 渲染。
-    //
-    // 就绪锚点用内嵌界面的官方侧栏根节点：桌宠设置分区及其菜单补丁由后续用例断言，这里只等界面可用。
-    await withIframe(async () => {
-      await browser.execute(collectPageErrors)
-      await browser.waitUntil(
-        () => browser.execute(elementExists, READY_ANCHOR),
-        { timeout: 60_000, timeoutMsg: '内嵌 dsh 界面未渲染出官方侧栏（插件 client 未生效）' },
-      )
-    })
+    const retryCount = browser.options.connectionRetryCount
+    browser.options.connectionRetryCount = 0
+    try {
+      await expect.poll(async () => {
+        try {
+          await browser.switchFrame(null)
+          const currentIframe = await browser.$(SHELL_IFRAME)
+          await browser.switchFrame(currentIframe)
+          return await browser.execute(elementExists, READY_ANCHOR)
+        }
+        catch (error) {
+          if (error instanceof Error && /\b(?:no such frame|stale element reference)\b/i.test(error.message))
+            return false
+          throw error
+        }
+        finally {
+          await browser.switchFrame(null)
+        }
+      }, { timeout: 60_000, message: '内嵌 dsh 界面未渲染出官方侧栏' }).toBe(true)
+    }
+    finally {
+      browser.options.connectionRetryCount = retryCount
+    }
+
+    await withIframe(() => browser.execute(collectPageErrors))
 
     await dismissDshModals(browser)
     await setEnabled(false)

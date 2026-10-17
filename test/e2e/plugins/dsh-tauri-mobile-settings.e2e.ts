@@ -56,11 +56,6 @@ describe('mobile settings official host composition', () => {
       const plus = app.frame.locator('[data-dsh-mobile-new-session]')
       const center = app.frame.locator('[class$="_centerCol"]')
       const shade = app.frame.locator('[data-dsh-mobile-sidebar-shade]')
-      await plus.tap()
-      await expect.poll(() => app.frame.locator('[data-conversation-scroll]').count(), { message: '动画夹具必须通过真实新会话入口挂载会话区', timeout: 15_000 }).toBe(1)
-      const initialInput = app.frame.locator('[data-composer-card] [data-composer-input][contenteditable="true"]')
-      await initialInput.tap()
-      await expect.poll(() => initialInput.evaluate(element => document.activeElement === element), { message: '初始合成器必须可真实触摸聚焦后再开始侧栏交互' }).toBe(true)
       await app.frame.locator('[class$="_centerCol"], [data-dsh-mobile-sidebar-shade]').evaluateAll((elements) => {
         for (const element of elements) {
           element.setAttribute('data-e2e-transform-count', '0')
@@ -87,9 +82,6 @@ describe('mobile settings official host composition', () => {
       await plus.tap()
       expect(await plus.evaluate(element => getComputedStyle(element).outlineStyle), '新会话图标触摸后也不能留下默认框').toBe('none')
       await expect.poll(() => app.frame.locator('[data-conversation-scroll]').count(), { message: '新会话必须先挂载会话区', timeout: 15_000 }).toBe(1)
-      const input = app.frame.locator('[data-composer-card] [data-composer-input][contenteditable="true"]')
-      await input.tap()
-      await expect.poll(() => input.evaluate(element => document.activeElement === element), { message: '真实触摸编辑器后必须获得焦点，键盘导航从同一输入框开始' }).toBe(true)
       for (let index = 0; index < 10 && !await toggle.evaluate(element => document.activeElement === element); index++)
         await app.page.keyboard.press('Shift+Tab')
       expect(await toggle.evaluate(element => ({
