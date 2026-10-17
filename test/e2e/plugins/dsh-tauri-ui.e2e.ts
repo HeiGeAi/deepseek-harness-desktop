@@ -155,7 +155,7 @@ describe('L2 客户端', () => {
       expect(state.hasSearch, '设置侧栏必须带搜索框').toBe(true)
       expect(state.navLabels.length, '设置侧栏必须至少渲染一个导航项').toBeGreaterThan(0)
       expect(state.navLabels, '插件分区与核心分区必须同时出现在同一侧栏').toContain('宠物')
-      expect(state.navLabels, '本插件提供的设置分区必须在同一侧栏').toContain('插件')
+      expect(state.navLabels, '核心内置插件分区必须与插件分区共用同一侧栏').toContain('内置插件')
       expect(state.railWidth, '侧栏宽度必须落在插件声明的 264–420px 夹紧区间内（插件不覆写宿主宽度）')
         .toBeGreaterThanOrEqual(264)
       expect(state.railWidth!).toBeLessThanOrEqual(420)

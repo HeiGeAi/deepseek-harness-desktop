@@ -41,7 +41,7 @@ const translate = ((key: string) => key) as Translate
 
 function runtime(options: { ids?: string[], current?: string, original?: string, mounted?: string, archived?: string[] } = {}) {
   const ids = (options.ids ?? ['original', 'current', 'first']).map(sessionId)
-  const list = observable<SessionListState & { current?: string }>({
+  const list = observable<SessionListState>({
     ids,
     byId: Object.fromEntries(ids.map(id => [id, {
       id,
@@ -53,8 +53,8 @@ function runtime(options: { ids?: string[], current?: string, original?: string,
     }])),
     phase: 'ready',
     projectionsBySession: {},
-    current: options.current ?? 'current',
   })
+  const current = observable({ key: options.current === '' ? undefined : sessionId(options.current ?? 'current') })
   const workspaces = observable<WorkspaceSnapshot>({
     items: [],
     archivedSessionIds: (options.archived ?? []).map(sessionId),
@@ -90,7 +90,7 @@ function runtime(options: { ids?: string[], current?: string, original?: string,
   }
   const uiWorkspace: { openSession?: typeof openSession, startSession?: typeof startSession } = { openSession, startSession }
   const sessions: { list: typeof list, create?: () => Promise<SessionId> } = { list }
-  const adapter = defineAdapter({ sessions, workspaces: { list: workspaces }, uiWorkspace }, { onWarn: vi.fn() })
+  const adapter = defineAdapter({ sessions, workspaces: { list: workspaces }, uiWorkspace, uiSession: { adapter: { current } } }, { onWarn: vi.fn() })
   const controller = createLifecycleController()
   const abort = new AbortController()
   const target: TaskTabNavigation = { id: 'task-1', sessionId: options.original ?? 'original' }

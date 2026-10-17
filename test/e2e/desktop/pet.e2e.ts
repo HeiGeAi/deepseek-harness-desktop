@@ -1,5 +1,4 @@
 import type { DesktopApp } from '../support/desktop'
-import process from 'node:process'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { startDesktopApp } from '../support/desktop'
 import { dismissDshModals } from '../support/onboarding'
@@ -93,7 +92,7 @@ function shellInvoke(cmd: string, args?: unknown): Promise<unknown> {
 // 4. 测试套件
 // ==========================================
 
-describe.skipIf(process.platform !== 'win32')('桌面端桌宠独立窗口', () => {
+describe('桌面端桌宠独立窗口', () => {
   let app: DesktopApp
 
   beforeAll(async () => {

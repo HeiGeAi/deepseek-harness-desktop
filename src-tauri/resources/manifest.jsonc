@@ -1,8 +1,8 @@
 {
   "engines": {
     "dsh": {
-      "recommend": "0.2.0-rc.2",
-      "minimum": "0.1.5-rc.1"
+      "recommend": "0.2.1-rc.1",
+      "minimum": "0.1.7-rc.1"
     },
     "node": {
       "version": ">=22.22.0"
@@ -43,8 +43,8 @@
     },
     "dsh": {
       "engine": {
-        "recommend": "0.2.0-rc.2",
-        "minimum": "0.1.5-rc.1"
+        "recommend": "0.2.1-rc.1",
+        "minimum": "0.1.7-rc.1"
       },
       "entry": "node_modules/@deepseek-ai/dsh/lib/bin.js",
       "managedRoot": "$AppData/dependencies/dsh",
@@ -178,10 +178,6 @@
         "checked": true,
         "version": [
           {
-            "version": "^0.19.1",
-            "dsh": "^0.1.5-rc.1"
-          },
-          {
             "version": "^0.21.1",
             "dsh": "^0.1.7-rc.1"
           },
@@ -200,10 +196,6 @@
         "recommended": true,
         "checked": true,
         "version": [
-          {
-            "version": "^0.12.2",
-            "dsh": "^0.1.5-rc.1"
-          },
           {
             "version": "^0.14.0",
             "dsh": "^0.1.7-rc.1"
@@ -233,10 +225,6 @@
         "recommended": false,
         "checked": false,
         "version": [
-          {
-            "version": "^4.25.0",
-            "dsh": "^0.1.5-rc.1"
-          },
           {
             "version": "^4.29.0",
             "dsh": "^0.1.7-rc.1"

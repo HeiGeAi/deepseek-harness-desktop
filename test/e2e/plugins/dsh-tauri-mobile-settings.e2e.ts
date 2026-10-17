@@ -11,8 +11,7 @@ afterAll(async () => {
 })
 
 const DIALOG = '[role="dialog"][aria-modal="true"][data-dsh-mobile-settings]'
-// Official current SettingsRoot uses settings.launcher; legacy puts settings.trigger inside its button.
-const LAUNCHER = '[data-slot="settings.launcher"] button[aria-haspopup="dialog"], button[aria-haspopup="dialog"]:has([data-slot="settings.trigger"])'
+const LAUNCHER = '[data-slot="settings.launcher"] button[aria-haspopup="dialog"]'
 
 async function openPhoneSettings(width: number, height: number) {
   const app = await newDshPage(browser, {
