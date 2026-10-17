@@ -13,11 +13,32 @@ const CMD_ADD_WORKSPACE = 'dsh://workspace:add'
 /** 壳层建窗时注入的跳转信息全局名（与 `src-tauri/src/desktop/window.rs` 逐字一致）。 */
 const NAVIGATION_GLOBAL = '__DSH_NAVIGATION__'
 
+/** 同一 webview 已消费过的跳转目标：脚本在 iframe 重载时会再次注入，不能重复切回旧会话。 */
+const NAVIGATION_CONSUMED_KEY = '__DSH_NAVIGATION_CONSUMED__'
+
 const NAVIGATION_POLL_MS = 500
 const NAVIGATION_TIMEOUT_MS = 30_000
 
 interface InjectedNavigation {
   sessionId?: unknown
+}
+
+function injectedSessionConsumed(sessionId: string): boolean {
+  try {
+    return window.sessionStorage.getItem(NAVIGATION_CONSUMED_KEY) === sessionId
+  }
+  catch {
+    return false
+  }
+}
+
+function markInjectedSessionConsumed(sessionId: string): void {
+  try {
+    window.sessionStorage.setItem(NAVIGATION_CONSUMED_KEY, sessionId)
+  }
+  catch {
+    // 存储不可用时退化为「每个文档内只消费一次」，不阻断本次打开。
+  }
 }
 
 function takeInjectedSession(): string | undefined {
@@ -27,7 +48,9 @@ function takeInjectedSession(): string | undefined {
     return undefined
   delete host[NAVIGATION_GLOBAL]
   const sessionId = typeof payload === 'object' && payload !== null ? payload.sessionId : undefined
-  return typeof sessionId === 'string' && sessionId.trim() !== '' ? sessionId : undefined
+  if (typeof sessionId !== 'string' || sessionId.trim() === '' || injectedSessionConsumed(sessionId))
+    return undefined
+  return sessionId
 }
 
 function consumeInjectedSession(controller: RegisterController, adapter: ClientAdapter, sessionId: string): void {
@@ -57,6 +80,7 @@ function consumeInjectedSession(controller: RegisterController, adapter: ClientA
       if (outcome.status !== 'opened')
         throw new Error(outcome.reason)
       await outcome.value
+      markInjectedSessionConsumed(sessionId)
     })().catch((error: unknown) => reportPluginError(error))
   }
 

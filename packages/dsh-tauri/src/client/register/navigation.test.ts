@@ -15,8 +15,15 @@ interface Host {
 function stubHost(): Host {
   const listeners = new Set<(event: MessageEvent) => void>()
   const parent = { postMessage: vi.fn() }
+  const storage = new Map<string, string>()
   const host: Record<string, unknown> = {
     parent,
+    sessionStorage: {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        storage.set(key, value)
+      },
+    },
     addEventListener: (_type: string, handler: (event: MessageEvent) => void) => listeners.add(handler),
     removeEventListener: (_type: string, handler: (event: MessageEvent) => void) => listeners.delete(handler),
   }
@@ -72,6 +79,28 @@ describe('navigationFeature', () => {
     expect(host.post).not.toHaveBeenCalled()
     dispose()
     expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('同一窗口的帧内重载不再重复打开已消费的跳转目标', async () => {
+    const host = stubHost()
+    host.window[NAVIGATION_GLOBAL] = { sessionId: 'target' }
+    const openSession = vi.fn()
+    const services = {
+      sessions: stubSessions(() => ['target']),
+      uiWorkspace: { openSession },
+    }
+
+    const dispose = navigationFeature.call(ctxWithServices(services))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(openSession).toHaveBeenCalledOnce()
+    dispose()
+
+    host.window[NAVIGATION_GLOBAL] = { sessionId: 'target' }
+    const reloaded = navigationFeature.call(ctxWithServices(services))
+    await vi.advanceTimersByTimeAsync(31_000)
+    expect(openSession).toHaveBeenCalledOnce()
+    expect(host.post).not.toHaveBeenCalled()
+    reloaded()
   })
 
   it('没有注入载荷时不打开任何会话', async () => {

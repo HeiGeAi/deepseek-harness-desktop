@@ -46,8 +46,15 @@ function stubEnv(): Harness {
   const documentListeners = new Map<(event: KeyboardEvent) => void, string>()
   const sent: ParentMessage[] = []
   const parent = { postMessage: (message: ParentMessage) => sent.push(message) }
+  const storage = new Map<string, string>()
   vi.stubGlobal('window', {
     parent,
+    sessionStorage: {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        storage.set(key, value)
+      },
+    },
     addEventListener: (type: string, handler: (event: MessageEvent) => void) => windowListeners.set(handler, type),
     removeEventListener: (_type: string, handler: (event: MessageEvent) => void) => windowListeners.delete(handler),
   })
