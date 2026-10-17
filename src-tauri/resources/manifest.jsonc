@@ -159,16 +159,6 @@
     ],
     "preset": [
       {
-        "id": "dshmarket",
-        "spec": "dshmarket",
-        "name": "DSH Market",
-        "repo": "https://github.com/dsh-market/dsh-market",
-        "description": "The plugin market inside DeepSeek Harness — browse, search, one-click install · DSH 可视化插件市场",
-        "recommended": true,
-        "checked": true,
-        "version": "latest"
-      },
-      {
         "id": "dsh-better-sidebar",
         "spec": "dsh-better-sidebar",
         "name": "DSH Better Sidebar",
@@ -213,6 +203,16 @@
         "description": "基本稳定可用 A context-compression plugin for small context windows (a 100K context is enough), token savings (5x fewer tokens), and month-long single sessions (billions of tokens).上下文压缩插件，兼顾小窗口(100k上下文足矣)省token(省5倍token)和超长会话(数月级别几十亿token单会话)。billion-context is all you need",
         "repo": "https://github.com/ranxianglei/billion-context",
         "recommended": true,
+        "checked": false,
+        "version": "latest"
+      },
+      {
+        "id": "dshmarket",
+        "spec": "dshmarket",
+        "name": "DSH Market",
+        "repo": "https://github.com/dsh-market/dsh-market",
+        "description": "The plugin market inside DeepSeek Harness — browse, search, one-click install · DSH 可视化插件市场",
+        "recommended": false,
         "checked": false,
         "version": "latest"
       },

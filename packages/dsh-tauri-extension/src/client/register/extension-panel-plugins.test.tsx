@@ -106,6 +106,11 @@ function Plugins({ floor = false, initial = 'list', backLabel = '返回插件', 
           </header>
         )}
         {view === 'list' && (
+          <div className="upstream-tabs">
+            <div role="tablist" aria-label="插件分组" />
+          </div>
+        )}
+        {view === 'list' && (
           <section data-plugin-group={floor ? 'official' : 'extensions'}>
             <h3>实验性插件</h3>
             {!floor && <button type="button" onClick={() => setView('more')}>更多</button>}
@@ -147,7 +152,7 @@ async function settle(): Promise<void> {
 let upstreamStyle: HTMLStyleElement
 beforeEach(() => {
   upstreamStyle = document.createElement('style')
-  upstreamStyle.textContent = '.upstream-main { display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:16px; padding-top:28px } .upstream-title { margin:0; font-size:20px; line-height:28px; font-weight:500 } .upstream-intro { margin:4px 0 0; font-size:13px; line-height:20px } .upstream-more { align-items:center; gap:8px } .upstream-back { width:28px; padding:0 }'
+  upstreamStyle.textContent = '.upstream-main { display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:16px; padding-top:28px } .upstream-title { margin:0; font-size:20px; line-height:28px; font-weight:500 } .upstream-intro { margin:4px 0 0; font-size:13px; line-height:20px } .upstream-more { align-items:center; gap:8px } .upstream-back { width:28px; padding:0 } .upstream-tabs { display:flex; margin-top:-16px }'
   document.head.append(upstreamStyle)
 })
 
@@ -187,11 +192,18 @@ describe('embedded official plugin headers', () => {
     fireEvent.click(back)
     await waitFor(() => expect(back.hasAttribute('data-dsh-plugins-back')).toBe(false))
     expect(back.getAttribute('aria-label')).toBe('返回插件')
-    expect(back.querySelector('[data-dsh-plugins-back-label]')).toBeNull()
+    expect(back.querySelector('span')).toBeNull()
     expect(view.getByRole('heading', { name: '官方插件', level: 1 })).toBeTruthy()
     expect(view.queryByRole('button', { name: '回退' })).toBeNull()
     expect(view.getAllByRole('tab')).toEqual(tabs)
     expect(tabs[0]?.getAttribute('aria-selected')).toBe('true')
+  })
+
+  it('drops the official tab strip negative margin so the header keeps its spacing', async () => {
+    install()
+    const view = renderPanel()
+    const strip = element<HTMLElement>(view.container, '[data-plugin-panel] > div:has(> [role="tablist"])')
+    expect(getComputedStyle(strip).marginTop).toBe('0px')
   })
 
   it('preserves the floor header without drag attributes, its paragraph intro and native configuration navigation', async () => {
@@ -243,7 +255,7 @@ describe('embedded official plugin headers', () => {
     const { dispose } = install()
     await waitFor(() => expect(view.getByRole('button', { name: '回退' })).toBe(back))
     expect(back.firstChild).toBe(children[0])
-    expect(back.querySelectorAll('[data-dsh-plugins-back-label]')).toHaveLength(1)
+    expect(back.querySelectorAll('span')).toHaveLength(1)
     dispose()
     await settle()
     expect(back.hasAttribute('aria-label')).toBe(false)
@@ -265,8 +277,8 @@ describe('embedded official plugin headers', () => {
     await waitFor(() => expect(view.getAllByRole('button', { name: 'Back' })).toHaveLength(1))
     expect(view.getByRole('button', { name: 'Back' })).toBe(back)
     expect(back.textContent).toBe('Back')
-    element(back, '[data-dsh-plugins-back-label]').remove()
-    await waitFor(() => expect(back.querySelectorAll('[data-dsh-plugins-back-label]')).toHaveLength(1))
+    element(back, 'span').remove()
+    await waitFor(() => expect(back.querySelectorAll('span')).toHaveLength(1))
     expect(host.listeners.size).toBe(2)
 
     dispose()
@@ -288,7 +300,7 @@ describe('embedded official plugin headers', () => {
     await waitFor(() => expect(view.getByRole('button', { name: '回退' })).toBeTruthy())
     const back = view.getByRole('button', { name: '回退' })
     fireEvent.click(view.getByRole('tab', { name: '技能' }))
-    await waitFor(() => expect(back.querySelector('[data-dsh-plugins-back-label]')).toBeNull())
+    await waitFor(() => expect(back.querySelector('span')).toBeNull())
     expect(back.isConnected).toBe(false)
     expect(back.getAttribute('aria-label')).toBe('返回插件')
     expect(back.hasAttribute('data-dsh-plugins-back')).toBe(false)
@@ -296,7 +308,7 @@ describe('embedded official plugin headers', () => {
     fireEvent.click(view.getByRole('button', { name: '更多' }))
     await waitFor(() => expect(view.getAllByRole('button', { name: '回退' })).toHaveLength(1))
     expect(view.getByRole('button', { name: '回退' })).not.toBe(back)
-    expect(view.container.querySelectorAll('[data-dsh-plugins-back-label]')).toHaveLength(1)
+    expect(view.getByRole('button', { name: '回退' }).querySelectorAll('span')).toHaveLength(1)
   })
 
   it('does not infer a subpage from text or touch plugin content and other panels', async () => {
@@ -343,13 +355,13 @@ describe('embedded official plugin headers', () => {
       await waitFor(() => expect(view.getAllByRole('button', { name: '回退' })).toHaveLength(1))
       view.container.append(document.createElement('div'))
       await settle()
-      expect(back.querySelectorAll('[data-dsh-plugins-back-label]')).toHaveLength(1)
+      expect(back.querySelectorAll('span')).toHaveLength(1)
       expect(document.querySelectorAll(styleSelector)).toHaveLength(1)
       expect(document.querySelector(styleSelector)?.getAttribute('data-plugin')).toBe(PANEL_ID)
       dispose()
       expect(back.getAttribute('aria-label')).toBe('返回插件')
       expect(back.hasAttribute('data-dsh-plugins-back')).toBe(false)
-      expect(back.querySelector('[data-dsh-plugins-back-label]')).toBeNull()
+      expect(back.querySelector('span')).toBeNull()
       expect(document.querySelector(styleSelector)).toBeNull()
       expect(host.listeners.size).toBe(0)
       view.container.append(document.createElement('div'))

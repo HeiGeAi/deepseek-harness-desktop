@@ -77,9 +77,9 @@
 
 启动引导提供以下社区插件，可按需安装；
 
-- [DSH Market](https://github.com/dsh-market/dsh-market) — 社区插件市场
 - [DSH Better Sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) — 按会话隔离的右编辑器侧栏
 - [Billion Context](https://github.com/ranxianglei/billion-context) — 上下文压缩与历史恢复
+- [DSH Market](https://github.com/dsh-market/dsh-market) — 社区插件市场
 - [DSH Rewind](https://github.com/SiriLee/dsh-rewind) — 对话回退与工作区备份
 - [DSH IM](https://github.com/xmanrui/dsh-im) — IM 渠道与机器人管理
 

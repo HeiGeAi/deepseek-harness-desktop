@@ -168,7 +168,7 @@ describe('extension panel official plugins composition', () => {
         expect(await back.getAttribute('aria-label'), '回退按钮必须有本地化无障碍名称').toBe('回退')
         expect(await back.textContent(), '回退按钮必须显示中文文案').toBe('回退')
         expect(await officialPage.getByRole('button', { name: '回退', exact: true }).count(), '不可有重复的可访问回退入口').toBe(1)
-        expect(await back.locator('[data-dsh-plugins-back-label]').count(), '回退文案不得重复注入').toBe(1)
+        expect(await back.locator('span').count(), '回退文案不得重复注入').toBe(1)
         expect(await back.locator('svg').count(), '必须保留官方原生回退图标').toBe(1)
         expect(await app.frame.locator('[data-dsh-plugins-icon]').isVisible(), '更多页不得叠加主页闪光图标').toBe(false)
         const geometry = await officialPage.evaluate((el) => {
@@ -176,7 +176,7 @@ describe('extension panel official plugins composition', () => {
           const button = header.querySelector('[data-dsh-plugins-back]')!
           const title = header.querySelector(':scope > h1')!
           const icon = button.querySelector('svg')!
-          const label = button.querySelector('[data-dsh-plugins-back-label]')!
+          const label = button.querySelector('span')!
           const rect = (node: Element) => {
             const box = node.getBoundingClientRect()
             return { left: box.left, top: box.top, right: box.right, bottom: box.bottom, width: box.width, height: box.height }

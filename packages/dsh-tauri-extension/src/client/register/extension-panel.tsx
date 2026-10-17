@@ -61,7 +61,6 @@ export const extensionPanelFeature = defineRegister<ClientContext>((controller, 
       let entry = backButtons.get(button)
       if (entry === undefined) {
         const label = document.createElement('span')
-        label.setAttribute('data-dsh-plugins-back-label', '')
         entry = { label, original: button.getAttribute('aria-label'), applied: text }
         backButtons.set(button, entry)
       }

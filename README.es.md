@@ -78,9 +78,9 @@ Plugins propios distribuidos con los recursos del escritorio:
 
 El asistente ofrece los siguientes plugins comunitarios para instalar a demanda.
 
-- [DSH Market](https://github.com/dsh-market/dsh-market) — Mercado de plugins comunitarios
 - [DSH Better Sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) — Barra lateral del editor por sesión
 - [Billion Context](https://github.com/ranxianglei/billion-context) — Compresión de contexto y restauración del historial
+- [DSH Market](https://github.com/dsh-market/dsh-market) — Mercado de plugins comunitarios
 - [DSH Rewind](https://github.com/SiriLee/dsh-rewind) — Retroceso de conversación y backups del workspace
 - [DSH IM](https://github.com/xmanrui/dsh-im) — Canales IM y gestión de bots
 

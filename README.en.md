@@ -78,9 +78,9 @@ First-party plugins distributed with desktop resources:
 
 Setup offers the following community plugins for installation on demand.
 
-- [DSH Market](https://github.com/dsh-market/dsh-market) — Community plugin market
 - [DSH Better Sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) — Per-session editor sidebar
 - [Billion Context](https://github.com/ranxianglei/billion-context) — Context compression and history restoration
+- [DSH Market](https://github.com/dsh-market/dsh-market) — Community plugin market
 - [DSH Rewind](https://github.com/SiriLee/dsh-rewind) — Conversation rewind and workspace backups
 - [DSH IM](https://github.com/xmanrui/dsh-im) — IM channels and bot management
 

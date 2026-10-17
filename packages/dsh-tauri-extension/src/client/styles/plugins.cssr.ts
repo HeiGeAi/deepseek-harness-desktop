@@ -11,6 +11,7 @@ export const pluginsStyle = cssr.c([
   cssr.c(`${root} > [data-dsh-plugins-icon]`, { display: 'none', position: 'absolute', top: '5px', left: 0, width: '22px', height: '22px', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }),
   cssr.c(`${root}:has([data-plugin-panel] > header > div:first-child > h1) > [data-dsh-plugins-icon]`, { display: 'inline-flex' }),
   cssr.c(page, { height: 'auto', padding: 0, overflow: 'visible', gap: '14px' }),
+  cssr.c(`${page} > div:has(> [role="tablist"])`, { marginTop: 0 }),
   cssr.c(mainHead, { paddingTop: 0, flexWrap: 'wrap', alignItems: 'center', gap: '14px 10px' }),
   cssr.c(`${mainHead} > div:first-child`, { display: 'contents' }),
   cssr.c(`${mainHead} > div:first-child > h1`, { margin: 0, paddingLeft: '32px', fontSize: '16px', lineHeight: '24px', fontWeight: 500 }),
