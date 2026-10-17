@@ -170,7 +170,9 @@ describe('heroWorkspaceFeature', () => {
       getSnapshot: vi.fn(() => snapshot),
       subscribe: vi.fn((listener: () => void) => {
         listeners.add(listener)
-        return () => { unsubscribe(listener) }
+        return () => {
+          unsubscribe(listener)
+        }
       }),
     }
     mocks[source] = { list }
