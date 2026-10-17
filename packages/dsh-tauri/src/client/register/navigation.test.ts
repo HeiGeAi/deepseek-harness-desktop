@@ -136,7 +136,7 @@ describe('navigationFeature', () => {
   it('dsh://session:new 走官方 startSession，其它 type 不触发', async () => {
     const host = stubHost()
     const startSession = vi.fn()
-    const dispose = navigationFeature.call(ctxWithServices({ workspaces: { startSession } }))
+    const dispose = navigationFeature.call(ctxWithServices({ uiWorkspace: { startSession } }))
 
     host.dispatch({ type: 'dsh://other' })
     host.dispatch({ type: CMD_NEW_SESSION })
@@ -146,11 +146,11 @@ describe('navigationFeature', () => {
   })
 
   it('dsh://workspace:add 走选目录 → 建工作区 → 在新工作区开会话', async () => {
-    const host = stubHost()
     const startSession = vi.fn()
     const pickDirectory = vi.fn(async () => 'C:/ws')
     const create = vi.fn(async () => ({ workspaceId: 'ws-1' }))
-    const dispose = navigationFeature.call(ctxWithServices({ workspaces: { startSession, pickDirectory, create } }))
+    const host = stubHost()
+    const dispose = navigationFeature.call(ctxWithServices({ workspaces: { create }, uiWorkspace: { startSession, pickDirectory } }))
 
     host.dispatch({ type: CMD_ADD_WORKSPACE })
 

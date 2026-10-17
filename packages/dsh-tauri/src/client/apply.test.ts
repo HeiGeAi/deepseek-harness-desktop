@@ -249,7 +249,8 @@ describe('apply', () => {
     const create = vi.fn(async () => ({ workspaceId: 'ws-1' }))
     const ctx = Object.assign(fakeCtx(env.labels), {
       layout: { toggleSidebar },
-      workspaces: { startSession, pickDirectory, create },
+      workspaces: { create },
+      uiWorkspace: { startSession, pickDirectory },
     })
 
     apply(ctx)
