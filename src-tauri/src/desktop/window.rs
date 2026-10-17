@@ -118,7 +118,14 @@ pub fn on_page_load(
     }
 }
 
+/// 跳转信息全局名（与 `packages/dsh-tauri/src/client/register/navigation.ts` 逐字一致）。
+const NAVIGATION_GLOBAL: &str = "__DSH_NAVIGATION__";
+
 /// 壳层导航栏「文件 → 新建窗口」：以同一 `index.html` 再开一个独立 webview 窗口。
+///
+/// 传入 `session_id` 时把跳转目标注入新窗口的全部 frame，由 dsh-tauri 插件在启动后接收并
+/// 打开该会话。注入而不是拼 `index.html#...`：hash 只有壳层可读，内嵌 dsh 的插件拿不到，
+/// 只能退回壳层轮询转发，并把新窗口误当成 remote 视图。
 ///
 /// 异步命令（不占用主线程）是唯一安全的调用侧：`WebviewWindowBuilder::build()`
 /// 需要主线程事件循环回包，主线程调用会死锁（与 `pet::ensure_pet_window` 同约束）。
@@ -127,151 +134,61 @@ pub async fn create_app_window(
     app_handle: AppHandle<Wry>,
     window: WebviewWindow<Wry>,
     session_id: Option<String>,
-    iframe_url: Option<String>,
 ) -> Result<(), String> {
+    let navigation = session_id
+        .as_deref()
+        .map(session_navigation_script)
+        .transpose()?;
     let _transition = crate::service::workflow::acquire_core_transition().await?;
     let profile = crate::service::workflow::instances::window_profile(&app_handle, window.label());
-    let path = crate::service::workflow::instances::scope_sync(profile.clone(), || {
-        let origin =
-            config::get_dsh_service_url(crate::service::workflow::instances::port(&app_handle));
-        session_window_path(session_id.as_deref(), iframe_url.as_deref(), &origin)
-    })?;
-    crate::desktop::builder::build_extra_window(&app_handle, path, &profile)
-        .map(|_| ())
-        .map_err(|error| format!("WINDOW_CREATE_FAILED: {error}"))
+    crate::desktop::builder::build_extra_window(
+        &app_handle,
+        "index.html".into(),
+        &profile,
+        navigation.as_deref(),
+    )
+    .map(|_| ())
+    .map_err(|error| format!("WINDOW_CREATE_FAILED: {error}"))
 }
 
-fn session_window_path(
-    session_id: Option<&str>,
-    iframe_url: Option<&str>,
-    caller_origin: &str,
-) -> Result<std::path::PathBuf, String> {
-    let Some(session_id) = session_id else {
-        return Ok("index.html".into());
-    };
+/// 校验会话 id 并生成跳转脚本；JSON 序列化负责转义，避免把用户输入拼成可执行代码。
+fn session_navigation_script(session_id: &str) -> Result<String, String> {
     if session_id.trim().is_empty() || session_id.len() > 512 {
         return Err("WINDOW_CREATE_FAILED: invalid sessionId".into());
     }
-    let url = Url::parse(iframe_url.unwrap_or(caller_origin))
-        .map_err(|error| format!("WINDOW_CREATE_FAILED: invalid iframeUrl: {error}"))?;
-    if url.scheme() != "http"
-        || !matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"))
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.path() != "/"
-        || url.query().is_some()
-        || url.fragment().is_some()
-    {
-        return Err("WINDOW_CREATE_FAILED: iframeUrl must be a loopback HTTP origin".into());
-    }
-    let mut target = url.clone();
-    target
-        .query_pairs_mut()
-        .append_pair("sessionId", session_id)
-        .append_pair("iframeUrl", url.as_str());
-    Ok(format!("index.html#{}", target.query().unwrap_or_default()).into())
+    let payload = serde_json::json!({ "sessionId": session_id });
+    Ok(format!("globalThis.{NAVIGATION_GLOBAL} = {payload};"))
 }
 
 #[cfg(test)]
-mod session_window_tests {
-    use super::session_window_path;
+mod session_navigation_tests {
+    use super::session_navigation_script;
 
     #[test]
-    fn create_app_window_forwards_iframe_origin_without_replacing_it_with_caller_origin() {
-        let command = include_str!("window.rs")
-            .split_once("pub async fn create_app_window(")
-            .unwrap()
-            .1
-            .split_once("\nfn session_window_path(")
-            .unwrap()
-            .0;
-        assert!(command.contains(
-            "session_window_path(session_id.as_deref(), iframe_url.as_deref(), &origin)"
-        ));
-    }
-
-    #[test]
-    fn session_target_preserves_iframe_origin_over_caller_profile_origin() {
+    fn session_navigation_script_assigns_the_session_target_to_the_shared_global() {
         assert_eq!(
-            session_window_path(
-                Some("remote-session"),
-                Some("http://127.0.0.1:4001"),
-                "http://127.0.0.1:41002",
-            )
-            .unwrap()
-            .to_str(),
-            Some("index.html#sessionId=remote-session&iframeUrl=http%3A%2F%2F127.0.0.1%3A4001%2F")
+            session_navigation_script("session &/?#").unwrap(),
+            r#"globalThis.__DSH_NAVIGATION__ = {"sessionId":"session &/?#"};"#
         );
     }
 
     #[test]
-    fn session_target_defaults_to_calling_profile_origin() {
+    fn session_navigation_script_escapes_values_through_json_serialization() {
         assert_eq!(
-            session_window_path(Some("local-session"), None, "http://127.0.0.1:41002")
-                .unwrap()
-                .to_str(),
-            Some("index.html#sessionId=local-session&iframeUrl=http%3A%2F%2F127.0.0.1%3A41002%2F")
+            session_navigation_script("a\"b\\c\nd").unwrap(),
+            r#"globalThis.__DSH_NAVIGATION__ = {"sessionId":"a\"b\\c\nd"};"#
         );
     }
 
     #[test]
-    fn new_window_without_session_ignores_iframe_origin() {
-        for origin in [None, Some("https://example.com")] {
+    fn session_navigation_script_rejects_empty_blank_or_oversized_identifiers() {
+        for id in ["", " ", " \t\n", &"s".repeat(513)] {
             assert_eq!(
-                session_window_path(None, origin, "http://127.0.0.1:41002")
-                    .unwrap()
-                    .to_str(),
-                Some("index.html")
-            );
-        }
-    }
-
-    #[test]
-    fn session_target_encodes_session_identifier() {
-        assert_eq!(
-            session_window_path(
-                Some("session &/?#"),
-                Some("http://127.0.0.1:3080"),
-                "http://127.0.0.1:41002",
-            )
-            .unwrap()
-            .to_str(),
-            Some("index.html#sessionId=session+%26%2F%3F%23&iframeUrl=http%3A%2F%2F127.0.0.1%3A3080%2F")
-        );
-    }
-
-    #[test]
-    fn session_target_rejects_untrusted_iframe_origins_instead_of_using_caller_origin() {
-        for origin in [
-            "https://example.com",
-            "file:///x",
-            "http://localhost/api",
-            "http://u@localhost",
-            "http://localhost/?token=x",
-            "http://localhost/#fragment",
-        ] {
-            assert_eq!(
-                session_window_path(Some("s1"), Some(origin), "http://127.0.0.1:41002"),
-                Err("WINDOW_CREATE_FAILED: iframeUrl must be a loopback HTTP origin".into())
-            );
-        }
-    }
-
-    #[test]
-    fn session_target_rejects_explicit_empty_origin_instead_of_using_caller_origin() {
-        let error =
-            session_window_path(Some("s1"), Some(""), "http://127.0.0.1:41002").unwrap_err();
-        assert!(error.starts_with("WINDOW_CREATE_FAILED: invalid iframeUrl:"));
-    }
-
-    #[test]
-    fn session_target_rejects_empty_or_oversized_session_identifiers() {
-        for id in ["", " ", &"s".repeat(513)] {
-            assert_eq!(
-                session_window_path(Some(id), None, "http://127.0.0.1:41002"),
+                session_navigation_script(id),
                 Err("WINDOW_CREATE_FAILED: invalid sessionId".into())
             );
         }
+        assert!(session_navigation_script(&"s".repeat(512)).is_ok());
     }
 }
 

@@ -9,7 +9,7 @@ import { registerStyle } from './register/style'
 import { zoomShortcutFeature } from './register/zoom-shortcut'
 
 const SIDEBAR_TOGGLE_EFFECT = 'dsh-tauri: sidebar (toggle command + collapsed report)'
-const NAVIGATION_EFFECT = 'dsh-tauri: navigation (new session, add workspace)'
+const NAVIGATION_EFFECT = 'dsh-tauri: navigation (session target, new session, add workspace)'
 const ZOOM_SHORTCUT_EFFECT = 'dsh-tauri: zoom shortcuts (ctrl/cmd +/-/0)'
 const SIDEBAR_TWEAKS_EFFECT = 'dsh-tauri: sidebar tweaks (hide collapse toggle, center brand)'
 const STYLE_EFFECT = 'dsh-tauri: style (sidebar background)'

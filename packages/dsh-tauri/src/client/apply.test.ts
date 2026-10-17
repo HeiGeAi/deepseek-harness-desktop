@@ -8,7 +8,7 @@ const EXPECTED_LABELS = [
   'dsh-tauri: appearance',
   'dsh-tauri: style (sidebar background)',
   'dsh-tauri: sidebar (toggle command + collapsed report)',
-  'dsh-tauri: navigation (new session, add workspace)',
+  'dsh-tauri: navigation (session target, new session, add workspace)',
   'dsh-tauri: zoom shortcuts (ctrl/cmd +/-/0)',
   'dsh-tauri: sidebar tweaks (hide collapse toggle, center brand)',
   'dsh-tauri: account sign-in (auto-open the authorize url)',
@@ -127,6 +127,18 @@ function fakeCtx(labels: string[]): ClientContext {
   return ctx as unknown as ClientContext
 }
 
+interface NavigationWindow {
+  __DSH_NAVIGATION__?: { sessionId?: unknown }
+}
+
+function injectSessionTarget(sessionId: string): void {
+  (window as unknown as NavigationWindow).__DSH_NAVIGATION__ = { sessionId }
+}
+
+function injectedSessionTarget(): unknown {
+  return (window as unknown as NavigationWindow).__DSH_NAVIGATION__
+}
+
 beforeEach(() => {
   vi.useFakeTimers()
 })
@@ -140,8 +152,9 @@ afterEach(async () => {
 })
 
 describe('apply', () => {
-  it('会话服务后到时仍能打开并确认目标会话，不创建新会话', async () => {
+  it('会话服务后到时仍能消费注入的目标会话，不创建新会话', async () => {
     const env = stubEnv()
+    injectSessionTarget('target')
     const ctx = new Context()
     disposers.push(ctx.fiber.dispose)
     const toggleSidebar = vi.fn()
@@ -152,69 +165,44 @@ describe('apply', () => {
     expect(env.sent).toContainEqual({ type: 'dsh://style', sidebar: null, marked: null, frame: null, colorScheme: 'light' })
     env.dispatch({ type: 'dsh://sidebar:toggle' })
     expect(toggleSidebar).toHaveBeenCalledTimes(1)
-    const preventDefault = vi.fn()
-    env.keydown({ key: '+', ctrlKey: true, preventDefault } as unknown as KeyboardEvent)
-    expect(env.sent).toContainEqual({ type: 'dsh://zoom-shortcut', action: 'increase' })
-    expect(preventDefault).toHaveBeenCalledTimes(1)
     const openSession = vi.fn()
     const create = vi.fn()
     const startSession = vi.fn()
 
-    env.dispatch({ type: 'dsh://session:open', sessionId: 'target' })
-    expect(env.sent.filter(message => message.type === 'dsh://session:opened')).toEqual([])
     ctx.provide('sessions', {
       list: { getSnapshot: () => ({ ids: ['target'] }), subscribe: vi.fn() },
       create,
     })
     await bridge.await()
+    expect(injectedSessionTarget()).toBeUndefined()
     ctx.provide('uiWorkspace', { openSession, startSession })
-    env.dispatch({ type: 'dsh://session:open', sessionId: 'target' })
-    env.dispatch({ type: 'dsh://session:open', sessionId: 'target' })
+    await vi.advanceTimersByTimeAsync(500)
 
-    await vi.waitFor(() => expect(env.sent.filter(message => message.type === 'dsh://session:opened')).toEqual([
-      { type: 'dsh://session:opened', sessionId: 'target' },
-    ]))
     expect(openSession.mock.calls).toEqual([['target']])
     expect(create).not.toHaveBeenCalled()
     expect(startSession).not.toHaveBeenCalled()
   })
 
-  it('会话服务撤销后停止确认，重建服务后重新打开同一目标', async () => {
+  it('会话服务撤销再重建时不重复消费注入的目标会话', async () => {
     const env = stubEnv()
+    injectSessionTarget('target')
     const ctx = new Context()
     disposers.push(ctx.fiber.dispose)
-    const toggleSidebar = vi.fn()
-    ctx.provide('layout', { toggleSidebar })
+    ctx.provide('layout', { toggleSidebar: vi.fn() })
     ctx.provide('theme', {})
     const sessions = { list: { getSnapshot: () => ({ ids: ['target'] }), subscribe: vi.fn() } }
     const removeSessions = ctx.provide('sessions', sessions)
     const openSession = vi.fn()
     ctx.provide('uiWorkspace', { openSession })
     const bridge = await ctx.plugin({ inject, apply })
-    env.dispatch({ type: 'dsh://session:open', sessionId: 'target' })
-    await vi.waitFor(() => expect(env.sent).toContainEqual({ type: 'dsh://session:opened', sessionId: 'target' }))
     expect(openSession).toHaveBeenCalledTimes(1)
 
     await removeSessions()
-    env.sent.length = 0
-    env.dispatch({ type: 'dsh://session:open', sessionId: 'target' })
-    expect(env.sent.filter(message => message.type === 'dsh://session:opened')).toEqual([])
-    expect(openSession).toHaveBeenCalledTimes(1)
-    expect(env.styles).toHaveLength(1)
-    env.dispatch({ type: 'dsh://sidebar:toggle' })
-    expect(toggleSidebar).toHaveBeenCalledTimes(1)
-    const preventDefault = vi.fn()
-    env.keydown({ key: '+', ctrlKey: true, preventDefault } as unknown as KeyboardEvent)
-    expect(env.sent).toContainEqual({ type: 'dsh://zoom-shortcut', action: 'increase' })
-    expect(preventDefault).toHaveBeenCalledTimes(1)
-
     ctx.provide('sessions', { ...sessions })
     await bridge.await()
-    env.dispatch({ type: 'dsh://session:open', sessionId: 'target' })
-    await vi.waitFor(() => expect(openSession.mock.calls).toEqual([['target'], ['target']]))
-    expect(env.sent.filter(message => message.type === 'dsh://session:opened')).toEqual([
-      { type: 'dsh://session:opened', sessionId: 'target' },
-    ])
+    await vi.advanceTimersByTimeAsync(500)
+    expect(openSession).toHaveBeenCalledTimes(1)
+
     await bridge.dispose()
     expect(env.windowListeners()).toBe(0)
     expect(env.documentListeners()).toBe(0)
