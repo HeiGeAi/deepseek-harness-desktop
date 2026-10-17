@@ -64,7 +64,7 @@ const LINUX_ASSETS = [
   {
     name: 'deepseek-harness-pkg-linux.zip',
     url: `https://github.com/${PKG_REPO}/releases/download/${DSH_TAG}/deepseek-harness-pkg-linux.zip`,
-    digest: 'sha256:6b7ecfebe3b7d779b459262943b17777427860f1b96dbf3b6f16a5074b1119a7',
+    digest: 'sha256:aa11ad24166e046f9b3c3a4c16de7f0f92ac2a699e0ab52981ae2dc453e1b26c',
   },
 ]
 
@@ -344,7 +344,7 @@ describe('buildInstallScript', () => {
     expect(script).toContain('https://npmmirror.com/mirrors/node/v22.22.0/node-v22.22.0-linux-x64.tar.gz')
     expect(script).toContain('https://registry.npmjs.org/pnpm/-/pnpm-11.7.0.tgz')
     expect(script).toContain(LINUX_ASSETS[0]?.url ?? '')
-    expect(script).toContain('sha256:6b7ecfebe3b7d779b459262943b17777427860f1b96dbf3b6f16a5074b1119a7')
+    expect(script).toContain('sha256:aa11ad24166e046f9b3c3a4c16de7f0f92ac2a699e0ab52981ae2dc453e1b26c')
     expect(script).toContain('trap cleanup EXIT')
     expect(script).toContain('checksum mismatch')
     expect(script).toContain('unzip -q -o')

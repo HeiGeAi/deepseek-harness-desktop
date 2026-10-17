@@ -19,4 +19,6 @@
 
 根[声明索引](<../../../THIRD_PARTY_NOTICES.md>)和各包当前核对引用随子模块推进到 rc.2；既有 alpha.1 派生归属及 Scheduler 的原始 SHA 保留，不声称重新复制或重新验证每份派生文件。固定规范不修改；当前推荐、最低支持和解析依赖以[资源清单](<../../../src-tauri/resources/manifest.jsonc>)、[workspace 配置](<../../../pnpm-workspace.yaml>)和[锁文件](<../../../pnpm-lock.yaml>)为准。
 
-本轮验证尚在进行，不复用 rc.1 的通过数量。本地禁止插件 Build；完整浏览器与原生桌面验证须由 PR CI 从当前源码重建，缺失或过期产物不能通过触碰时间戳绕过。
+本轮独立依赖 `pnpm install --frozen-lockfile --no-trust-lockfile --ignore-scripts` 通过；源码 typecheck 通过。基线、版本、最低声明、远端回退与滚动回归共 7 文件 / 276 项，seed `21201`–`21205` 连续通过；真实 Temp CLI `0.1.7-rc.1` 与 `0.2.1-rc.2` 的鉴权回归各 5 轮通过。真实 rc.2 发行 `ScrollFollow` 提取后应用生产 Rust 替换体，38 项共享契约通过；首次临时提取脚本边界错误导致 SyntaxError，修正提取边界后再验证，不归因于产品代码。1117 导航与更新前端定向回归 3 文件 / 27 项通过。
+
+本地 L2 已实跑，但缺少 `dsh-tauri/dist/index.js`，在 globalSetup 明确失败；未执行插件 Build、未借用其他工作树产物、未触碰旧产物时间戳。Windows 远端 bootstrap 全文件实跑为 52 通过 / 11 失败，失败为 POSIX tar 的 Windows 盘符、执行位、文件权限与 `/bin/sh` 限制，不算全量通过；Linux CI 验证这部分。完整浏览器与原生桌面验证交 PR CI 从当前源码重建，最终结果以检查状态为准。

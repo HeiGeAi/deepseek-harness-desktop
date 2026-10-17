@@ -22,9 +22,9 @@ describe('workspace DSH development dependency ownership', () => {
     const names = Object.keys(manifest.devDependencies ?? {}).filter(name => name.startsWith('@deepseek-ai/dsh-')).sort()
     expect(names).toHaveLength(32)
     const workspace = readFileSync(new URL('pnpm-workspace.yaml', root), 'utf8')
-    const catalog = workspace.match(/^  dsh:\r?\n([\s\S]*?)(?=^  \w+:)/m)?.[1]
+    const catalog = workspace.match(/^ {2}dsh:\r?\n([\s\S]*?)(?=^ {2}\w+:)/m)?.[1]
     expect(catalog).toBeTypeOf('string')
-    const entries = [...catalog!.matchAll(/^    '(@deepseek-ai\/dsh-[^']+)': ([^\r\n]+)$/gm)]
+    const entries = [...catalog!.matchAll(/^ {4}'(@deepseek-ai\/dsh-[^']+)': ([^\r\n]+)$/gm)]
       .map(([, name, version]) => [name, version])
     expect(Object.fromEntries(entries)).toEqual(Object.fromEntries(names.map(name => [name, '0.2.1-rc.2'])))
     const lockfile = readFileSync(new URL('pnpm-lock.yaml', root), 'utf8')
