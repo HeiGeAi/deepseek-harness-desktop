@@ -68,6 +68,8 @@ pub(super) fn write_patch_layer_atomically(path: &Path, rendered: &str) -> io::R
 }
 
 fn create_temp(parent: &Path, original: Option<&Path>) -> io::Result<tempfile::NamedTempFile> {
+    #[cfg(target_os = "macos")]
+    reject_parent_acl(parent)?;
     let mut builder = tempfile::Builder::new();
     builder.prefix(".cordis.patch-");
     #[cfg(windows)]
@@ -121,6 +123,45 @@ fn create_temp(parent: &Path, original: Option<&Path>) -> io::Result<tempfile::N
     #[cfg(not(windows))]
     let _ = original;
     builder.tempfile_in(parent)
+}
+
+#[cfg(target_os = "macos")]
+fn reject_parent_acl(parent: &Path) -> io::Result<()> {
+    use std::os::fd::AsRawFd;
+
+    unsafe extern "C" {
+        fn acl_get_fd_np(fd: libc::c_int, kind: libc::c_int) -> *mut libc::c_void;
+        fn acl_get_entry(
+            acl: *mut libc::c_void,
+            entry_id: libc::c_int,
+            entry: *mut *mut libc::c_void,
+        ) -> libc::c_int;
+        fn acl_free(acl: *mut libc::c_void) -> libc::c_int;
+    }
+    let parent = File::open(parent)?;
+    let acl = unsafe { acl_get_fd_np(parent.as_raw_fd(), 0x100) };
+    if acl.is_null() {
+        let error = io::Error::last_os_error();
+        return if error.raw_os_error() == Some(libc::ENOENT) {
+            Ok(())
+        } else {
+            Err(error)
+        };
+    }
+    let mut entry = std::ptr::null_mut();
+    let result = unsafe { acl_get_entry(acl, 0, &mut entry) };
+    let error = io::Error::last_os_error();
+    unsafe { acl_free(acl) };
+    if result == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "refusing to stage a patch in a directory with an extended ACL",
+        ));
+    }
+    if error.raw_os_error() != Some(libc::EINVAL) {
+        return Err(error);
+    }
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -385,6 +426,39 @@ mod tests {
         write_patch_layer_atomically(&path, "- id: token\n").unwrap();
         assert_eq!(dacl(&path), before);
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "- id: token\n");
+        assert_eq!(std::fs::read_dir(temp.path()).unwrap().count(), 1);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_rejects_inherited_acl_before_creating_a_temp_and_keeps_original() {
+        use std::os::fd::AsRawFd;
+        unsafe extern "C" {
+            fn acl_from_text(text: *const libc::c_char) -> *mut libc::c_void;
+            fn acl_set_fd_np(
+                fd: libc::c_int,
+                acl: *mut libc::c_void,
+                kind: libc::c_int,
+            ) -> libc::c_int;
+            fn acl_free(acl: *mut libc::c_void) -> libc::c_int;
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("cordis.patch.yml");
+        std::fs::write(&path, ORIGINAL).unwrap();
+        reject_parent_acl(temp.path()).unwrap();
+        write_patch_layer_atomically(&path, "[]\n").unwrap();
+        let parent = File::open(temp.path()).unwrap();
+        let acl = unsafe {
+            acl_from_text(c"!#acl 1\ngroup:ABCDEFAB-CDEF-ABCD-EFAB-CDEF0000000C:everyone:12:allow:file_inherit:read\n".as_ptr())
+        };
+        assert!(!acl.is_null());
+        let result = unsafe { acl_set_fd_np(parent.as_raw_fd(), acl, 0x100) };
+        unsafe { acl_free(acl) };
+        assert_eq!(result, 0);
+        let error = write_patch_layer_atomically(&path, "- id: secret\n").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        assert!(error.to_string().contains("extended ACL"));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "[]\n");
         assert_eq!(std::fs::read_dir(temp.path()).unwrap().count(), 1);
     }
 
