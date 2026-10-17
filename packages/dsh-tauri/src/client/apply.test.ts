@@ -1,13 +1,7 @@
-/**
- * apply.test.ts — 装配入口的回归测试（broke-once 防线）。
- *
- * `5b3b9534` 重建时 `client/apply.ts` 连同四个注册器被整体删除，宿主侧发送方
- * （`src/layout/components/webview.tsx`、`iframe.tsx`）原地保留，结果「壳的收起侧边栏」
- * 等控件全部空转。这里锁住每条 effect 都被登记，且登记过程确实挂上了父窗口桥监听。
- */
 import type { ClientContext, ParentMessage } from './types'
+import { Context } from '@deepseek-ai/cordis'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { apply } from './apply'
+import { apply, inject } from './index'
 
 // effect 标签是 `ctx.effect` 的卸载日志标识：与 `client/apply.ts` 逐字一致。
 const EXPECTED_LABELS = [
@@ -109,7 +103,7 @@ function stubEnv(): Harness {
   }
 }
 
-const disposers: (() => void)[] = []
+const disposers: (() => void | Promise<void>)[] = []
 
 /** 最小客户端 ctx：effect 按 cordis 的 `callback.call(fiber)` 语义绑定 this。 */
 function fakeCtx(labels: string[]): ClientContext {
@@ -134,14 +128,75 @@ beforeEach(() => {
   vi.useFakeTimers()
 })
 
-afterEach(() => {
+afterEach(async () => {
   for (const dispose of disposers.splice(0))
-    dispose()
+    await dispose()
+  vi.restoreAllMocks()
   vi.useRealTimers()
   vi.unstubAllGlobals()
 })
 
 describe('apply', () => {
+  it('会话服务后到时仍能打开并确认目标会话，不创建新会话', async () => {
+    const env = stubEnv()
+    const ctx = new Context()
+    disposers.push(ctx.fiber.dispose)
+    ctx.provide('layout', { toggleSidebar: vi.fn() })
+    ctx.provide('theme', {})
+    const bridge = await ctx.plugin({ inject, apply })
+    const openSession = vi.fn()
+    const create = vi.fn()
+    const startSession = vi.fn()
+
+    env.dispatch({ type: 'dsh://session:open', sessionId: 'target' })
+    expect(env.sent.filter(message => message.type === 'dsh://session:opened')).toEqual([])
+    ctx.provide('sessions', {
+      list: { getSnapshot: () => ({ ids: ['target'] }), subscribe: vi.fn() },
+      create,
+    })
+    await bridge.await()
+    ctx.provide('uiWorkspace', { openSession, startSession })
+    env.dispatch({ type: 'dsh://session:open', sessionId: 'target' })
+    env.dispatch({ type: 'dsh://session:open', sessionId: 'target' })
+
+    await vi.waitFor(() => expect(env.sent.filter(message => message.type === 'dsh://session:opened')).toEqual([
+      { type: 'dsh://session:opened', sessionId: 'target' },
+    ]))
+    expect(openSession.mock.calls).toEqual([['target']])
+    expect(create).not.toHaveBeenCalled()
+    expect(startSession).not.toHaveBeenCalled()
+  })
+
+  it('会话服务撤销后停止确认，重建服务后重新打开同一目标', async () => {
+    const env = stubEnv()
+    const ctx = new Context()
+    disposers.push(ctx.fiber.dispose)
+    ctx.provide('layout', { toggleSidebar: vi.fn() })
+    ctx.provide('theme', {})
+    const sessions = { list: { getSnapshot: () => ({ ids: ['target'] }), subscribe: vi.fn() } }
+    const removeSessions = ctx.provide('sessions', sessions)
+    const openSession = vi.fn()
+    ctx.provide('uiWorkspace', { openSession })
+    const bridge = await ctx.plugin({ inject, apply })
+    env.dispatch({ type: 'dsh://session:open', sessionId: 'target' })
+    await vi.waitFor(() => expect(env.sent).toContainEqual({ type: 'dsh://session:opened', sessionId: 'target' }))
+    expect(openSession).toHaveBeenCalledTimes(1)
+
+    await removeSessions()
+    env.sent.length = 0
+    env.dispatch({ type: 'dsh://session:open', sessionId: 'target' })
+    expect(env.sent).toEqual([])
+    expect(openSession).toHaveBeenCalledTimes(1)
+
+    ctx.provide('sessions', { ...sessions })
+    await bridge.await()
+    env.dispatch({ type: 'dsh://session:open', sessionId: 'target' })
+    await vi.waitFor(() => expect(openSession.mock.calls).toEqual([['target'], ['target']]))
+    expect(env.sent.filter(message => message.type === 'dsh://session:opened')).toEqual([
+      { type: 'dsh://session:opened', sessionId: 'target' },
+    ])
+  })
+
   it('独立浏览器跳过桌面 effect，不拦截原生缩放快捷键', () => {
     const env = stubEnv()
     Object.defineProperty(window, 'parent', { value: window })
@@ -209,7 +264,7 @@ describe('apply', () => {
     expect(env.documentListeners()).toBe(2)
 
     for (const dispose of disposers.splice(0))
-      dispose()
+      await dispose()
     await vi.waitFor(() => {
       expect(env.windowListeners()).toBe(0)
       expect(env.documentListeners()).toBe(0)

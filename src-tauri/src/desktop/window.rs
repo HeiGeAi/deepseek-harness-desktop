@@ -134,12 +134,8 @@ pub async fn create_app_window(
     let path = crate::service::workflow::instances::scope_sync(profile.clone(), || {
         let origin =
             config::get_dsh_service_url(crate::service::workflow::instances::port(&app_handle));
-        session_window_path(
-            session_id.as_deref(),
-            session_id.as_ref().map(|_| origin.as_str()),
-        )
+        session_window_path(session_id.as_deref(), iframe_url.as_deref(), &origin)
     })?;
-    let _ = iframe_url;
     crate::desktop::builder::build_extra_window(&app_handle, path, &profile)
         .map(|_| ())
         .map_err(|error| format!("WINDOW_CREATE_FAILED: {error}"))
@@ -148,6 +144,7 @@ pub async fn create_app_window(
 fn session_window_path(
     session_id: Option<&str>,
     iframe_url: Option<&str>,
+    caller_origin: &str,
 ) -> Result<std::path::PathBuf, String> {
     let Some(session_id) = session_id else {
         return Ok("index.html".into());
@@ -155,7 +152,7 @@ fn session_window_path(
     if session_id.trim().is_empty() || session_id.len() > 512 {
         return Err("WINDOW_CREATE_FAILED: invalid sessionId".into());
     }
-    let url = Url::parse(iframe_url.unwrap_or_default())
+    let url = Url::parse(iframe_url.unwrap_or(caller_origin))
         .map_err(|error| format!("WINDOW_CREATE_FAILED: invalid iframeUrl: {error}"))?;
     if url.scheme() != "http"
         || !matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"))
@@ -180,25 +177,101 @@ mod session_window_tests {
     use super::session_window_path;
 
     #[test]
-    fn session_target_is_encoded_and_rejects_untrusted_urls() {
+    fn create_app_window_forwards_iframe_origin_without_replacing_it_with_caller_origin() {
+        let command = include_str!("window.rs")
+            .split_once("pub async fn create_app_window(")
+            .unwrap()
+            .1
+            .split_once("\nfn session_window_path(")
+            .unwrap()
+            .0;
+        assert!(command.contains(
+            "session_window_path(session_id.as_deref(), iframe_url.as_deref(), &origin)"
+        ));
+    }
+
+    #[test]
+    fn session_target_preserves_iframe_origin_over_caller_profile_origin() {
         assert_eq!(
-            session_window_path(None, None).unwrap().to_str(),
-            Some("index.html")
+            session_window_path(
+                Some("remote-session"),
+                Some("http://127.0.0.1:4001"),
+                "http://127.0.0.1:41002",
+            )
+            .unwrap()
+            .to_str(),
+            Some("index.html#sessionId=remote-session&iframeUrl=http%3A%2F%2F127.0.0.1%3A4001%2F")
         );
+    }
+
+    #[test]
+    fn session_target_defaults_to_calling_profile_origin() {
         assert_eq!(
-            session_window_path(Some("session &/?#"), Some("http://127.0.0.1:3080")).unwrap().to_str(),
+            session_window_path(Some("local-session"), None, "http://127.0.0.1:41002")
+                .unwrap()
+                .to_str(),
+            Some("index.html#sessionId=local-session&iframeUrl=http%3A%2F%2F127.0.0.1%3A41002%2F")
+        );
+    }
+
+    #[test]
+    fn new_window_without_session_ignores_iframe_origin() {
+        for origin in [None, Some("https://example.com")] {
+            assert_eq!(
+                session_window_path(None, origin, "http://127.0.0.1:41002")
+                    .unwrap()
+                    .to_str(),
+                Some("index.html")
+            );
+        }
+    }
+
+    #[test]
+    fn session_target_encodes_session_identifier() {
+        assert_eq!(
+            session_window_path(
+                Some("session &/?#"),
+                Some("http://127.0.0.1:3080"),
+                "http://127.0.0.1:41002",
+            )
+            .unwrap()
+            .to_str(),
             Some("index.html#sessionId=session+%26%2F%3F%23&iframeUrl=http%3A%2F%2F127.0.0.1%3A3080%2F")
         );
-        for url in [
+    }
+
+    #[test]
+    fn session_target_rejects_untrusted_iframe_origins_instead_of_using_caller_origin() {
+        for origin in [
             "https://example.com",
             "file:///x",
             "http://localhost/api",
             "http://u@localhost",
             "http://localhost/?token=x",
+            "http://localhost/#fragment",
         ] {
-            assert!(session_window_path(Some("s1"), Some(url)).is_err());
+            assert_eq!(
+                session_window_path(Some("s1"), Some(origin), "http://127.0.0.1:41002"),
+                Err("WINDOW_CREATE_FAILED: iframeUrl must be a loopback HTTP origin".into())
+            );
         }
-        assert!(session_window_path(Some(" "), Some("http://localhost:3080")).is_err());
+    }
+
+    #[test]
+    fn session_target_rejects_explicit_empty_origin_instead_of_using_caller_origin() {
+        let error =
+            session_window_path(Some("s1"), Some(""), "http://127.0.0.1:41002").unwrap_err();
+        assert!(error.starts_with("WINDOW_CREATE_FAILED: invalid iframeUrl:"));
+    }
+
+    #[test]
+    fn session_target_rejects_empty_or_oversized_session_identifiers() {
+        for id in ["", " ", &"s".repeat(513)] {
+            assert_eq!(
+                session_window_path(Some(id), None, "http://127.0.0.1:41002"),
+                Err("WINDOW_CREATE_FAILED: invalid sessionId".into())
+            );
+        }
     }
 }
 

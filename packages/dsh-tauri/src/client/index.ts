@@ -37,4 +37,4 @@ export * from './utils/device'
 
 export const name = PLUGIN_ID
 
-export const inject = ['layout', 'theme']
+export const inject = ['layout', 'theme', 'sessions']
