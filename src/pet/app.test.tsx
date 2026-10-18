@@ -1,107 +1,79 @@
 // @vitest-environment jsdom
-import type { PetRef } from 'dsh-pet-component'
-import { act, cleanup, render } from '@testing-library/react'
-import { IDBFactory, IDBKeyRange } from 'fake-indexeddb'
+import type { PetProps } from 'dsh-pet-component'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from './app'
 
-const state = vi.hoisted(() => ({
-  drag: { dragging: false, direction: undefined as 'left' | 'right' | undefined },
-  pet: null as PetRef | null,
-}))
-
-vi.mock('@gravity-ui/icons', () => ({
-  CircleCheck: () => null,
-  CircleExclamation: () => null,
-  CircleInfo: () => null,
-  TriangleExclamation: () => null,
-}))
-vi.mock('@/ui/pet/hint', () => ({ Hint: () => null }))
-vi.mock('@/hooks/use-window-draggable', () => ({
-  useWindowDraggable: () => ({ ...state.drag, onPointerDown: vi.fn(), onPointerUp: vi.fn() }),
-}))
-vi.mock('@/hooks/use-omit-ignore-cursor-events', () => ({ useOmitIgnoreCursorEvents: vi.fn() }))
-vi.mock('../hooks/use-wakelock-release', () => ({ useWakelockRelease: vi.fn() }))
-vi.mock('./hooks/use-pet-source', () => ({
-  usePetSource: () => ({
-    source: { kind: 'codex', config: { spriteVersionNumber: 2 }, uri: 'data:image/png;base64,AA==', cache: false },
-    error: null,
-  }),
+const native = vi.hoisted(() => ({ invoke: vi.fn(), report: vi.fn() }))
+vi.mock('@tauri-apps/api/core', () => ({ invoke: native.invoke }))
+vi.mock('./utils/log', () => ({ reportPetIssue: native.report }))
+vi.mock('dsh-pet-component', () => ({
+  Pet: (props: PetProps) => (
+    <div data-testid="pet-hitbox" onDoubleClick={props.onDoubleClick} onContextMenu={props.onContextMenu} />
+  ),
+  useControllablePet: () => ({}),
 }))
 vi.mock('./hooks/use-pet-status', () => ({
-  usePetStatus: () => ({ active_pet: 'codex:test', enabled: true, visible: true, pet_size: 100 }),
-  normalizeSizePercent: (value: number) => value,
+  usePetStatus: () => ({ enabled: true, visible: true, active_pet: 'codex:cat', pet_size: 100 }),
+  normalizeSizePercent: (size: number) => size,
 }))
-vi.mock('./hooks/use-pet-physics', () => ({ usePetPhysics: () => ({ onFling: vi.fn(), onGrab: vi.fn(), onRelease: vi.fn() }) }))
-vi.mock('./hooks/use-pet-window-clamp', () => ({
-  usePetWindowClamp: () => ({ clampPosition: (position: unknown) => position, refreshWorkAreas: vi.fn() }),
+vi.mock('./hooks/use-pet-source', () => ({
+  usePetSource: () => ({ source: { kind: 'codex', config: {}, uri: 'cat.png' }, error: null }),
 }))
+vi.mock('./hooks/use-bubble-tracker', () => ({ useBubbleTracker: vi.fn() }))
+vi.mock('./hooks/use-pet-physics', () => ({ usePetPhysics: () => ({}) }))
 vi.mock('./hooks/use-pet-window', () => ({ usePetWindowSize: vi.fn() }))
-vi.mock('./hooks/use-bubble-tracker', () => ({
-  useBubbleTracker: (pet: PetRef) => {
-    state.pet = pet
-  },
-}))
+vi.mock('./hooks/use-pet-window-clamp', () => ({ usePetWindowClamp: () => ({}) }))
+vi.mock('@/hooks/use-window-draggable', () => ({ useWindowDraggable: () => ({ dragging: false }) }))
+vi.mock('@/hooks/use-omit-ignore-cursor-events', () => ({ useOmitIgnoreCursorEvents: vi.fn() }))
+vi.mock('../hooks/use-wakelock-release', () => ({ useWakelockRelease: vi.fn() }))
+vi.mock('@/ui/pet/hint', () => ({ Hint: () => null }))
 
 beforeEach(() => {
-  vi.useFakeTimers()
-  state.drag = { dragging: false, direction: undefined }
-  state.pet = null
-  vi.stubGlobal('indexedDB', new IDBFactory())
-  vi.stubGlobal('IDBKeyRange', IDBKeyRange)
-  vi.stubGlobal('matchMedia', vi.fn(() => ({
-    matches: false,
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    addListener: vi.fn(),
-    removeListener: vi.fn(),
-  })))
-  vi.stubGlobal('ResizeObserver', class {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  })
+  vi.resetAllMocks()
+  native.invoke.mockResolvedValue(undefined)
 })
-
 afterEach(() => {
   cleanup()
-  vi.useRealTimers()
-  vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
 
-describe('codex pet drag motion', () => {
-  it('会话气泡存续时拖动方向优先，松手后恢复会话动画', () => {
-    const view = render(<App />)
-    const sprite = view.container.querySelector('.dsh-pet[data-motion]')!
-    act(() => {
-      state.pet!.bubble({ id: 'session', title: '会话', motion: 'working', timeout: 0 })
-      vi.advanceTimersByTime(150)
-    })
-    expect(sprite.getAttribute('data-motion')).toBe('working')
-
-    state.drag = { dragging: true, direction: 'left' }
-    view.rerender(<App />)
-    expect(sprite.getAttribute('data-motion')).toBe('moving-left')
-
-    state.drag = { dragging: true, direction: 'right' }
-    view.rerender(<App />)
-    expect(sprite.getAttribute('data-motion')).toBe('moving-right')
-
-    state.drag = { dragging: false, direction: undefined }
-    view.rerender(<App />)
-    expect(sprite.getAttribute('data-motion')).toBe('working')
+describe('pet window interactions', () => {
+  it('opens the main window on the component double-click event', () => {
+    render(<App />)
+    fireEvent.doubleClick(screen.getByTestId('pet-hitbox'))
+    expect(native.invoke.mock.calls).toEqual([['pet_show_main_window']])
   })
 
-  it('拖动期间新到达的限时气泡动画不能覆盖方向', () => {
-    state.drag = { dragging: true, direction: 'left' }
-    const view = render(<App />)
-    const sprite = view.container.querySelector('.dsh-pet[data-motion]')!
-    expect(sprite.getAttribute('data-motion')).toBe('moving-left')
+  it('requests the native menu on the component context-menu event', () => {
+    render(<App />)
+    expect(fireEvent.contextMenu(screen.getByTestId('pet-hitbox'))).toBe(false)
+    expect(native.invoke.mock.calls).toEqual([['pet_show_context_menu']])
+  })
 
-    act(() => {
-      state.pet!.bubble({ id: 'done', title: '完成', motion: 'success', timeout: 2000 })
-    })
-    expect(sprite.getAttribute('data-motion')).toBe('moving-left')
+  it('does not open the main window on a single click', () => {
+    render(<App />)
+    fireEvent.click(screen.getByTestId('pet-hitbox'))
+    expect(native.invoke).not.toHaveBeenCalled()
+  })
+
+  it('suppresses the browser menu without showing the pet menu outside the body', () => {
+    render(<App />)
+    expect(fireEvent.contextMenu(screen.getByRole('main'))).toBe(false)
+    expect(native.invoke).not.toHaveBeenCalled()
+  })
+
+  it('reports a failed main-window request', async () => {
+    native.invoke.mockRejectedValueOnce(new Error('show failed'))
+    render(<App />)
+    fireEvent.doubleClick(screen.getByTestId('pet-hitbox'))
+    await waitFor(() => expect(native.report).toHaveBeenCalledWith('show main window', new Error('show failed')))
+  })
+
+  it('reports a failed native-menu request', async () => {
+    native.invoke.mockRejectedValueOnce(new Error('menu failed'))
+    render(<App />)
+    fireEvent.contextMenu(screen.getByTestId('pet-hitbox'))
+    await waitFor(() => expect(native.report).toHaveBeenCalledWith('context menu', new Error('menu failed')))
   })
 })

@@ -1,5 +1,5 @@
 diff --git a/dist/index.mjs b/dist/index.mjs
-index bc8841ebd2eae0f6092fed88108b6234cd2712af..7303fea1e7cd3d26acb7a6a203a71967a8762956 100644
+index dc6e0ff2768245e817b06d6493060573a0277a02..7ac738d28242256bcc2e178ecd6f95659d01aa25 100644
 --- a/dist/index.mjs
 +++ b/dist/index.mjs
 @@ -2722,7 +2722,8 @@ function CodexPet(props) {
@@ -12,7 +12,7 @@ index bc8841ebd2eae0f6092fed88108b6234cd2712af..7303fea1e7cd3d26acb7a6a203a71967
  	const frame = useMemo(() => resolveCodexFrame(renderMotion, config), [config, renderMotion]);
  	const src = useCachedMediaUrl(resolveSpritesheetUrl(uri, configSource, config), cache, onError);
  	useEffect(() => {
-@@ -3490,7 +3491,7 @@ function Pet(props) {
+@@ -3494,7 +3495,7 @@ function Pet(props) {
  		}
  		for (const id of [...fired.keys()]) if (!bubbles.some((bubble) => bubble.id === id)) fired.delete(id);
  	}, [bubbles, motionRequest]);
