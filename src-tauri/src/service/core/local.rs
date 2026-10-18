@@ -436,8 +436,15 @@ pub async fn update_local_core<R: Runtime>(app_handle: AppHandle<R>) -> Result<S
                     String::from_utf8_lossy(&output.stderr)
                 ));
             }
-            let target_version: String = serde_json::from_slice(&output.stdout)
+            let metadata: serde_json::Value = serde_json::from_slice(&output.stdout)
                 .map_err(|e| format!("CORE_UPDATE_TARGET_INVALID: {e}"))?;
+            let target_version = match &metadata {
+                serde_json::Value::String(version) => Some(version.as_str()),
+                serde_json::Value::Array(versions) if versions.len() == 1 => versions[0].as_str(),
+                _ => None,
+            }
+            .ok_or_else(|| "CORE_UPDATE_TARGET_INVALID: expected one version".to_string())?
+            .to_string();
             semver::Version::parse(&target_version)
                 .map_err(|e| format!("CORE_UPDATE_TARGET_INVALID: {e}"))?;
             let package = format!("@deepseek-ai/dsh@{target_version}");

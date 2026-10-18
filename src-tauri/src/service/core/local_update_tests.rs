@@ -20,6 +20,7 @@ fn local_update_isolation_checks_real_state_before_running_the_package_manager()
         "pnpm-success",
         "query-failure",
         "query-invalid",
+        "query-array",
         "missing-app",
         "unsupported-app",
         "unreadable-app",
@@ -35,9 +36,9 @@ fn local_update_isolation_checks_real_state_before_running_the_package_manager()
         std::fs::write(&local_bin, "local dsh fixture").unwrap();
         let marker = scratch.path().join("pm-called");
         let script = if cfg!(windows) {
-            "@echo off\r\nif \"%1\"==\"view\" goto query\r\necho %* > \"%DSH_TEST_LOCAL_UPDATE_MARKER%\"\r\n\"%DSH_TEST_LOCAL_UPDATE_EXE%\" --exact service::core::local::local_update_tests::local_update_package_manager_child --nocapture --test-threads=1\r\nexit /b %errorlevel%\r\n:query\r\necho %* > \"%DSH_TEST_LOCAL_UPDATE_SCRATCH%/pm-query\"\r\nif \"%DSH_TEST_LOCAL_UPDATE_CASE%\"==\"query-failure\" exit /b 1\r\nif \"%DSH_TEST_LOCAL_UPDATE_CASE%\"==\"query-invalid\" goto invalid\r\necho \"0.2.1-rc.2\"\r\nexit /b 0\r\n:invalid\r\necho invalid\r\nexit /b 0\r\n"
+            "@echo off\r\nif \"%1\"==\"view\" goto query\r\necho %* > \"%DSH_TEST_LOCAL_UPDATE_MARKER%\"\r\n\"%DSH_TEST_LOCAL_UPDATE_EXE%\" --exact service::core::local::local_update_tests::local_update_package_manager_child --nocapture --test-threads=1\r\nexit /b %errorlevel%\r\n:query\r\necho %* > \"%DSH_TEST_LOCAL_UPDATE_SCRATCH%/pm-query\"\r\nif \"%DSH_TEST_LOCAL_UPDATE_CASE%\"==\"query-failure\" exit /b 1\r\nif \"%DSH_TEST_LOCAL_UPDATE_CASE%\"==\"query-invalid\" goto invalid\r\nif \"%DSH_TEST_LOCAL_UPDATE_CASE%\"==\"query-array\" goto array\r\necho \"0.2.1-rc.2\"\r\nexit /b 0\r\n:array\r\necho [\"0.2.1-rc.2\"]\r\nexit /b 0\r\n:invalid\r\necho invalid\r\nexit /b 0\r\n"
         } else {
-            "#!/bin/sh\nif [ \"$1\" = view ]; then\n printf '%s\\n' \"$*\" > \"$DSH_TEST_LOCAL_UPDATE_SCRATCH/pm-query\"\n if [ \"$DSH_TEST_LOCAL_UPDATE_CASE\" = query-failure ]; then exit 1; fi\n if [ \"$DSH_TEST_LOCAL_UPDATE_CASE\" = query-invalid ]; then printf 'invalid\\n'; else printf '\"0.2.1-rc.2\"\\n'; fi\n exit 0\nfi\nprintf '%s\\n' \"$*\" > \"$DSH_TEST_LOCAL_UPDATE_MARKER\"\nexec \"$DSH_TEST_LOCAL_UPDATE_EXE\" --exact service::core::local::local_update_tests::local_update_package_manager_child --nocapture --test-threads=1\n"
+            "#!/bin/sh\nif [ \"$1\" = view ]; then\n printf '%s\\n' \"$*\" > \"$DSH_TEST_LOCAL_UPDATE_SCRATCH/pm-query\"\n if [ \"$DSH_TEST_LOCAL_UPDATE_CASE\" = query-failure ]; then exit 1; fi\n if [ \"$DSH_TEST_LOCAL_UPDATE_CASE\" = query-invalid ]; then printf 'invalid\\n'; elif [ \"$DSH_TEST_LOCAL_UPDATE_CASE\" = query-array ]; then printf '[\"0.2.1-rc.2\"]\\n'; else printf '\"0.2.1-rc.2\"\\n'; fi\n exit 0\nfi\nprintf '%s\\n' \"$*\" > \"$DSH_TEST_LOCAL_UPDATE_MARKER\"\nexec \"$DSH_TEST_LOCAL_UPDATE_EXE\" --exact service::core::local::local_update_tests::local_update_package_manager_child --nocapture --test-threads=1\n"
         };
         for pm in ["npm", "pnpm"] {
             let path = bin.join(if cfg!(windows) {
