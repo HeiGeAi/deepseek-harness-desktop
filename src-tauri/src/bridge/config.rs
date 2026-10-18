@@ -65,6 +65,7 @@ pub async fn update_app_config(
     zoom_factor: Option<f64>,
     harness_max_heap_mb: Option<u32>,
     auto_start: Option<bool>,
+    auto_update: Option<bool>,
     cli_link_enabled: Option<bool>,
     close_action: Option<String>,
     backup_retention_count: Option<u32>,
@@ -109,6 +110,9 @@ pub async fn update_app_config(
         }
         if let Some(auto_start) = auto_start {
             setting.auto_start = auto_start;
+        }
+        if let Some(auto_update) = auto_update {
+            setting.auto_update = auto_update;
         }
         if let Some(enabled) = cli_link_enabled {
             setting.cli_link_enabled = enabled;

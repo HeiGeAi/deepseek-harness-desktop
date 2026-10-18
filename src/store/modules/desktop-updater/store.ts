@@ -24,7 +24,7 @@ let downloadAndOpenTask: Promise<boolean> | null = null
  * - 检测到新版本即**静默下载**，不弹右下角 toast、不打断用户；进度只在
  *   「检查更新」/「更新可用」chip 打开的对话框里展示；
  * - 用户没在对话框里安装时，Rust 侧会在应用退出时自动打开已下载的安装器
- *   （见 service::update::pending）。
+ *   （见 service::update::pending），仅在设置页「自动更新」开启时生效。
  */
 export const desktopUpdater = defineStore({
   state: () => ({
