@@ -366,9 +366,6 @@ fn local_core_uses_pnpm<R: Runtime>(app_handle: &AppHandle<R>) -> bool {
     !npm_layout && pnpm_layout
 }
 
-/// 通过用户包管理器 CLI 更新本地核心（npm `update -g` / pnpm `add -g`）。
-///
-/// 返回更新后的版本号。失败返回错误（附进程输出尾部，便于排查）。
 pub async fn update_local_core<R: Runtime>(app_handle: AppHandle<R>) -> Result<String, String> {
     let _transition_guard = crate::service::workflow::acquire_core_transition().await?;
     crate::service::workflow::instances::require_exclusive_profile()?;
@@ -397,21 +394,24 @@ pub async fn update_local_core<R: Runtime>(app_handle: AppHandle<R>) -> Result<S
                 .to_string(),
         );
     }
+    let target_version = crate::config::recommended_dsh_version(&app_handle)
+        .filter(|version| semver::Version::parse(version).is_ok())
+        .ok_or_else(|| {
+            "CORE_UPDATE_TARGET_MISSING: no valid recommended core version".to_string()
+        })?;
     crate::config::update_store_dat_setting(&app_handle, |setting| {
         setting.active_core = Some(super::source::CoreSource::App.as_str().to_string());
     });
     log::info!("Updating local dsh core at {}", core.package_dir.display());
 
     let uses_pnpm = local_core_uses_pnpm(&app_handle);
-    // 更新到最新：pnpm 用 `add -g @latest`，npm 用 `install -g @latest`
-    // （npm update 对已固定版本号的安装可能不生效，install @latest 才能升级）
     let (pm, args): (&str, Vec<String>) = if uses_pnpm {
         (
             "pnpm",
             vec![
                 "add".to_string(),
                 "-g".to_string(),
-                "@deepseek-ai/dsh@latest".to_string(),
+                format!("@deepseek-ai/dsh@{target_version}"),
             ],
         )
     } else {
@@ -420,7 +420,7 @@ pub async fn update_local_core<R: Runtime>(app_handle: AppHandle<R>) -> Result<S
             vec![
                 "install".to_string(),
                 "-g".to_string(),
-                "@deepseek-ai/dsh@latest".to_string(),
+                format!("@deepseek-ai/dsh@{target_version}"),
             ],
         )
     };
@@ -466,14 +466,15 @@ pub async fn update_local_core<R: Runtime>(app_handle: AppHandle<R>) -> Result<S
         return Err(format!("CORE_UPDATE_FAILED: {output}"));
     }
 
-    // 更新成功后按新包目录回读版本
-    let version = local_core(&app_handle)
-        .map(|c| c.version)
-        .unwrap_or_default();
-    if version.is_empty() {
-        log::warn!("Local core updated but version could not be re-read");
+    let version = local_core(&app_handle).map(|c| c.version);
+    if version.as_deref() != Some(target_version.as_str()) {
+        return Err(format!(
+            "CORE_UPDATE_VERSION_MISMATCH: expected {target_version}, detected {} at {}",
+            version.as_deref().unwrap_or("unknown"),
+            core.package_dir.display(),
+        ));
     }
-    Ok(version)
+    Ok(target_version)
 }
 
 #[cfg(test)]

@@ -15,6 +15,9 @@ fn local_update_isolation_checks_real_state_before_running_the_package_manager()
         "fallback-failure",
         "automatic-fallback-success",
         "managed-success",
+        "unchanged-version",
+        "missing-version",
+        "pnpm-success",
         "missing-app",
         "unsupported-app",
         "unreadable-app",
@@ -136,9 +139,21 @@ fn local_update_package_manager_child() {
         eprintln!("fixture package manager failed");
         std::process::exit(1);
     }
+    let package = if case == "pnpm-success" {
+        scratch.join("bin/global/5/node_modules/@deepseek-ai/dsh")
+    } else {
+        scratch.join("node_modules/@deepseek-ai/dsh")
+    };
+    if case == "unchanged-version" {
+        return;
+    }
+    if case == "missing-version" {
+        std::fs::remove_file(package.join("package.json")).unwrap();
+        return;
+    }
     std::fs::write(
-        scratch.join("node_modules/@deepseek-ai/dsh/package.json"),
-        br#"{"name":"@deepseek-ai/dsh","version":"0.2.1-rc.1"}"#,
+        package.join("package.json"),
+        br#"{"name":"@deepseek-ai/dsh","version":"0.2.1-rc.2"}"#,
     )
     .unwrap();
 }
@@ -158,7 +173,11 @@ fn local_update_isolation_child() {
         .build(context)
         .unwrap();
     assert!(app.path().app_data_dir().unwrap().starts_with(&scratch));
-    let package = scratch.join("node_modules/@deepseek-ai/dsh");
+    let package = if case == "pnpm-success" {
+        scratch.join("bin/global/5/node_modules/@deepseek-ai/dsh")
+    } else {
+        scratch.join("node_modules/@deepseek-ai/dsh")
+    };
     std::fs::create_dir_all(package.join("lib")).unwrap();
     std::fs::write(package.join("lib/bin.js"), "local entry").unwrap();
     let local_version = if matches!(
@@ -166,6 +185,11 @@ fn local_update_isolation_child() {
         "active-local" | "automatic-local" | "managed-success"
     ) {
         "0.1.7-rc.1"
+    } else if matches!(
+        case.as_str(),
+        "unchanged-version" | "missing-version" | "pnpm-success"
+    ) {
+        "0.2.0-rc.2"
     } else {
         "0.1.6"
     };
@@ -187,7 +211,7 @@ fn local_update_isolation_child() {
     } else if case == "unreadable-app" {
         b"not json".as_slice()
     } else {
-        br#"{"dependencies":{"@deepseek-ai/dsh":"0.2.1-rc.1"}}"#.as_slice()
+        br#"{"dependencies":{"@deepseek-ai/dsh":"0.2.1-rc.2"}}"#.as_slice()
     };
     std::fs::write(managed.join("package.json"), managed_manifest).unwrap();
     let profile = config::get_dsh_data_path(app.handle()).join("profiles/keep-profile");
@@ -270,7 +294,7 @@ fn local_update_isolation_child() {
             .await
             .is_err());
             std::fs::write(scratch.join("pm-release"), "release").unwrap();
-            assert_eq!(task.await.unwrap().unwrap(), "0.2.1-rc.1");
+            assert_eq!(task.await.unwrap().unwrap(), "0.2.1-rc.2");
             let _guard =
                 tokio::time::timeout(Duration::from_secs(1), workflow::acquire_core_transition())
                     .await
@@ -304,15 +328,26 @@ fn local_update_isolation_child() {
                 let error = result.unwrap_err();
                 assert!(error.starts_with("CORE_UPDATE_FAILED:"), "{case}: {error}");
                 assert!(error.contains("fixture package manager failed"), "{error}");
+            } else if matches!(case.as_str(), "unchanged-version" | "missing-version") {
+                let error = result.unwrap_err();
+                assert!(
+                    error.starts_with("CORE_UPDATE_VERSION_MISMATCH:"),
+                    "{case}: {error}"
+                );
+                assert!(error.contains("0.2.1-rc.2"), "{error}");
             } else {
-                assert_eq!(result.unwrap(), "0.2.1-rc.1");
+                assert_eq!(result.unwrap(), "0.2.1-rc.2");
             }
         }
     });
     if marker.exists() {
         assert_eq!(
             std::fs::read_to_string(&marker).unwrap().trim(),
-            "install -g @deepseek-ai/dsh@latest"
+            if case == "pnpm-success" {
+                "add -g @deepseek-ai/dsh@0.2.1-rc.2"
+            } else {
+                "install -g @deepseek-ai/dsh@0.2.1-rc.2"
+            }
         );
         assert_eq!(
             config::get_store_dat_setting(app.handle())
@@ -321,10 +356,12 @@ fn local_update_isolation_child() {
             Some("app")
         );
         assert_eq!(active_source(app.handle()), CoreSource::App);
-        if case == "fallback-failure" {
-            assert_eq!(local_core(app.handle()).unwrap().version, "0.1.6");
+        if matches!(case.as_str(), "fallback-failure" | "unchanged-version") {
+            assert_eq!(local_core(app.handle()).unwrap().version, local_version);
+        } else if case == "missing-version" {
+            assert!(local_core(app.handle()).is_none());
         } else {
-            assert_eq!(local_core(app.handle()).unwrap().version, "0.2.1-rc.1");
+            assert_eq!(local_core(app.handle()).unwrap().version, "0.2.1-rc.2");
         }
     }
     assert_eq!(
