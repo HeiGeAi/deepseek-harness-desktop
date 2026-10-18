@@ -394,37 +394,17 @@ pub async fn update_local_core<R: Runtime>(app_handle: AppHandle<R>) -> Result<S
                 .to_string(),
         );
     }
-    let target_version = crate::config::recommended_dsh_version(&app_handle)
-        .filter(|version| semver::Version::parse(version).is_ok())
-        .ok_or_else(|| {
-            "CORE_UPDATE_TARGET_MISSING: no valid recommended core version".to_string()
-        })?;
     crate::config::update_store_dat_setting(&app_handle, |setting| {
         setting.active_core = Some(super::source::CoreSource::App.as_str().to_string());
     });
     log::info!("Updating local dsh core at {}", core.package_dir.display());
 
     let uses_pnpm = local_core_uses_pnpm(&app_handle);
-    let (pm, args): (&str, Vec<String>) = if uses_pnpm {
-        (
-            "pnpm",
-            vec![
-                "add".to_string(),
-                "-g".to_string(),
-                format!("@deepseek-ai/dsh@{target_version}"),
-            ],
-        )
+    let (pm, action) = if uses_pnpm {
+        ("pnpm", "add")
     } else {
-        (
-            "npm",
-            vec![
-                "install".to_string(),
-                "-g".to_string(),
-                format!("@deepseek-ai/dsh@{target_version}"),
-            ],
-        )
+        ("npm", "install")
     };
-    log::info!("Updating local dsh core via `{pm} {args:?}`");
 
     // GUI 进程下 npm/pnpm 均以控制台程序方式派生子进程，Windows 上需隐藏窗口
     let program = if cfg!(windows) {
@@ -432,21 +412,50 @@ pub async fn update_local_core<R: Runtime>(app_handle: AppHandle<R>) -> Result<S
     } else {
         pm.to_string()
     };
-    let (status, stdout, stderr) = tauri::async_runtime::spawn_blocking(move || {
-        let mut cmd = std::process::Command::new(&program);
-        cmd.args(&args);
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-        }
-        match cmd.output() {
-            Ok(out) => (out.status.success(), out.stdout, out.stderr),
-            Err(e) => (false, Vec::new(), format!("spawn failed: {e}").into_bytes()),
-        }
-    })
-    .await
-    .map_err(|e| format!("CORE_UPDATE_JOIN: {e}"))?;
+    let (target_version, status, stdout, stderr) =
+        tauri::async_runtime::spawn_blocking(move || {
+            let mut query = std::process::Command::new(&program);
+            query.args([
+                "view",
+                "@deepseek-ai/dsh@latest",
+                "version",
+                "--json",
+                "--prefer-online",
+            ]);
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                query.creation_flags(0x0800_0000);
+            }
+            let output = query
+                .output()
+                .map_err(|e| format!("CORE_UPDATE_TARGET_FAILED: {e}"))?;
+            if !output.status.success() {
+                return Err(format!(
+                    "CORE_UPDATE_TARGET_FAILED: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                ));
+            }
+            let target_version: String = serde_json::from_slice(&output.stdout)
+                .map_err(|e| format!("CORE_UPDATE_TARGET_INVALID: {e}"))?;
+            semver::Version::parse(&target_version)
+                .map_err(|e| format!("CORE_UPDATE_TARGET_INVALID: {e}"))?;
+            let package = format!("@deepseek-ai/dsh@{target_version}");
+            log::info!("Updating local dsh core via `{pm} {action} -g {package}`");
+            let mut cmd = std::process::Command::new(&program);
+            cmd.args([action, "-g", &package]);
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+            }
+            match cmd.output() {
+                Ok(out) => Ok((target_version, out.status.success(), out.stdout, out.stderr)),
+                Err(e) => Err(format!("CORE_UPDATE_FAILED: spawn failed: {e}")),
+            }
+        })
+        .await
+        .map_err(|e| format!("CORE_UPDATE_JOIN: {e}"))??;
 
     let tail = |bytes: Vec<u8>| -> String {
         String::from_utf8_lossy(&bytes)
