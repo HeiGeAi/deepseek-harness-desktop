@@ -1,3 +1,4 @@
+import type { HostContext } from 'dsh-tauri'
 import type { PetSessionPayload, SessionStreamSink } from '../types'
 import type { PetSessionEvent, PetSessionPeer, ProjectionRegistryLike, TitleServiceLike } from './session-stream.types'
 import { getServerContext } from 'dsh-h3/utils'
@@ -78,11 +79,13 @@ function attachSessionBus(): void {
   const disposeStatus = ctx.on('agent/status', handleAgentStatus) as () => void
   // 活体流式帧：0.1.6 起流式增量只在这条 agent-scoped 通知上，是「思考 · …」的唯一来源。
   const disposeFrame = ctx.on('agent/assistant-stream', handleAssistantStream) as () => void
+  const disposeStop = ctx.on('workspace/session-stop', ({ sessionId }) => removeKnownSession(sessionId)) as () => void
   setSessionBusDispose(() => {
     disposeEvent()
     disposeDisposed()
     disposeStatus()
     disposeFrame()
+    disposeStop()
     titleService = undefined
     projections = undefined
   })
@@ -173,10 +176,22 @@ function titleOnFirstSight(session: unknown): string | undefined {
   return projectedTitleOf(session) ?? titleService?.get?.(session)?.title
 }
 
+function removeKnownSession(id: string): void {
+  if (knownSessions.delete(id))
+    reducer.remove(id)
+}
+
+function removeIfArchived(id: string): boolean {
+  if (!getServerContext<HostContext>(server).workspaceRegistry?.archivedSessionIds.includes(id))
+    return false
+  removeKnownSession(id)
+  return true
+}
+
 function handleSessionEvent(session: unknown, event: unknown): void {
   const petEvent = asPetEvent(event)
   const id = sessionIdOf(session, petEvent)
-  if (!id)
+  if (!id || removeIfArchived(id))
     return
   const firstSight = !knownSessions.has(id)
   if (firstSight)
@@ -205,12 +220,11 @@ function handleSessionDisposed(session: unknown): void {
  */
 function handleAgentStatus(payload: unknown): void {
   const event = payload as { status?: unknown, agent?: { session?: { id?: unknown } } } | undefined
-  if (event?.status !== 'idle')
+  const id = event?.agent?.session?.id
+  if (typeof id !== 'string' || id.length === 0 || removeIfArchived(id))
     return
-  const id = event.agent?.session?.id
-  if (typeof id !== 'string' || id.length === 0)
-    return
-  reducer.idle(id)
+  if (event?.status === 'idle')
+    reducer.idle(id)
 }
 
 /** 帧路径的占位事件：只借它走同一套 id/peer 推导（流式帧本身不是会话事件）。 */
@@ -229,12 +243,12 @@ const FRAME_EVENT: PetSessionEvent = { type: '', seq: 0, time: 0, data: {} }
  */
 function handleAssistantStream(payload: unknown): void {
   const event = payload as { agent?: { session?: unknown }, frame?: { type?: unknown, chunk?: unknown } } | undefined
+  const session = event?.agent?.session
+  const id = sessionIdOf(session, FRAME_EVENT)
+  if (!id || removeIfArchived(id))
+    return
   const chunk = event?.frame?.chunk
   if (event?.frame?.type !== 'chunk' || chunk === undefined || chunk === null)
-    return
-  const session = event.agent?.session
-  const id = sessionIdOf(session, FRAME_EVENT)
-  if (!id)
     return
   // 首次出现的会话在这里建档（带上 origin/title 身份，子代理仍然只靠 origin 静默）；
   // 已建档的热路径只传 id —— 逐 token 帧不得再走 peerOf（投影标题解析）。
