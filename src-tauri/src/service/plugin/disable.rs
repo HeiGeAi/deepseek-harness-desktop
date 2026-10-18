@@ -13,9 +13,8 @@ use std::path::{Component, Path, PathBuf};
 
 use tauri::AppHandle;
 
-use crate::service::fs_guard;
 use crate::service::plugin::installed::profile_dir;
-use crate::service::plugin::recovery::{is_core_package, patch_entry_targets};
+use crate::service::plugin::recovery::{is_core_package, is_package_name, patch_entry_targets};
 use crate::service::plugin::{process, watch};
 
 /// profile 层的 patch 覆盖文件。
@@ -176,7 +175,10 @@ fn plugin_entry_ids(profile: &Path, id: &str) -> Vec<String> {
     ids
 }
 
-/// 插件是否被 profile 的 patch 覆盖禁用。
+/// 插件是否被 profile 的 patch 覆盖完全禁用。
+///
+/// 一个包可能对应多个 loader 条目（`dsh-ops/*`）：只有全部条目都被禁用才算
+/// 「已禁用」，否则面板会给出启用入口，把仍然在跑的条目误当成整体已关闭。
 pub(crate) fn has_patch_disable(profile: &Path, id: &str) -> bool {
     let disabled = load_patch_disabled(profile);
     if disabled.is_empty() {
@@ -184,7 +186,7 @@ pub(crate) fn has_patch_disable(profile: &Path, id: &str) -> bool {
     }
     let entry_ids = plugin_entry_ids(profile, id);
     if !entry_ids.is_empty() {
-        return entry_ids.iter().any(|entry_id| disabled.contains(entry_id));
+        return entry_ids.iter().all(|entry_id| disabled.contains(entry_id));
     }
     plugin_target_names(profile, id)
         .iter()
@@ -357,18 +359,27 @@ fn read_manifest(profile: &Path, prefix: &str) -> Result<serde_json::Value, Stri
     serde_json::from_str(&content).map_err(|e| format!("{prefix}_PARSE_MANIFEST: {e}"))
 }
 
+/// 插件 id 校验：允许 scoped 包名（`@scope/pkg`），同时挡住路径分隔符与穿越。
+///
+/// `fs_guard::validate_id` 会拒绝 `/`，scoped 插件（如 `@wenaixi/dsh-ponytail`）
+/// 按它校验会永远无法禁用/启用。
+fn validate_plugin_id(id: &str) -> Result<(), String> {
+    is_package_name(id)
+        .then_some(())
+        .ok_or_else(|| format!("INVALID_ID: plugin id is not a package name: {id}"))
+}
+
 /// 禁用插件的纯逻辑（不依赖 AppHandle，便于单元测试）。
 ///
 /// 只写 patch 覆盖：不再改 `dsh.profile.bundles`（组合包开关归官方插件页），也不写任何
 /// 桌面侧清单。
 pub(crate) fn disable_plugin_at(profile: &Path, id: &str) -> Result<(), String> {
-    // 官方/核心包 id 含 `/`，必须先于 validate_id 拦截，否则会被字符集校验误判。
     if is_core_package(id) {
         return Err(format!(
             "DISABLE_INTERNAL_PLUGIN: refusing to disable internal/official plugin {id}"
         ));
     }
-    fs_guard::validate_id(id)?;
+    validate_plugin_id(id)?;
     let manifest = read_manifest(profile, "DISABLE")?;
     if !is_in_dependencies(&manifest, id) {
         return Err(format!(
@@ -406,27 +417,35 @@ fn add_bundle(profile: &Path, id: &str, manifest: &mut serde_json::Value) -> Res
     bundles.push(serde_json::Value::String(id.to_string()));
     let rendered = serde_json::to_string_pretty(&manifest)
         .map_err(|e| format!("ENABLE_MANIFEST_RENDER_FAILED: {e}"))?;
-    fs::write(profile.join("package.json"), format!("{rendered}\n"))
-        .map_err(|e| format!("ENABLE_MANIFEST_WRITE_FAILED: {e}"))?;
+    super::atomic_write::write_file_atomically(
+        &profile.join("package.json"),
+        &format!("{rendered}\n"),
+    )
+    .map_err(|e| format!("ENABLE_MANIFEST_WRITE_FAILED: {e}"))?;
     Ok(true)
 }
 
 /// 启用插件的纯逻辑（不依赖 AppHandle，便于单元测试）：撤掉 patch 禁用覆盖；
 /// 若插件是被官方包级开关移出 `dsh.profile.bundles` 的 bundle 包，补回 bundles。
+///
+/// 先补 bundles 再撤 patch：任一步失败都停在「仍禁用」状态，用户可原样重试。
 pub(crate) fn enable_plugin_at(profile: &Path, id: &str) -> Result<(), String> {
-    fs_guard::validate_id(id)?;
+    validate_plugin_id(id)?;
     let mut manifest = read_manifest(profile, "ENABLE")?;
     if !is_in_dependencies(&manifest, id) {
         return Err(format!(
             "ENABLE_NOT_INSTALLED: plugin {id} is not installed"
         ));
     }
-    let bundled = manifest
+    let bundles = manifest
         .pointer("/dsh/profile/bundles")
-        .and_then(serde_json::Value::as_array)
-        .is_some_and(|bundles| bundles.iter().any(|bundle| bundle.as_str() == Some(id)));
-    let restored =
-        declares_bundle(profile, id) && !bundled && add_bundle(profile, id, &mut manifest)?;
+        .and_then(serde_json::Value::as_array);
+    let bundled =
+        bundles.is_some_and(|bundles| bundles.iter().any(|bundle| bundle.as_str() == Some(id)));
+    let restored = bundles.is_some()
+        && declares_bundle(profile, id)
+        && !bundled
+        && add_bundle(profile, id, &mut manifest)?;
     let stripped = strip_patch_disable(profile, id)?;
     if !restored && !stripped {
         return Err(format!(
@@ -952,6 +971,74 @@ mod tests {
             manifest["dsh"]["profile"]["bundles"],
             serde_json::json!(["dshmarket"])
         );
+
+        fs::remove_dir_all(&profile).ok();
+    }
+
+    /// scoped 包名（含 `/`）同样能禁用/启用：`fs_guard::validate_id` 会拒绝 `/`。
+    #[test]
+    fn disable_and_enable_scoped_plugin() {
+        let profile = build_bundle_profile(
+            "scoped",
+            &[(
+                "@wenaixi/dsh-ponytail",
+                "@wenaixi/dsh-ponytail",
+                "- insert:\n    - id: ponytail\n      name: '@wenaixi/dsh-ponytail'\n",
+            )],
+        );
+        disable_plugin_at(&profile, "@wenaixi/dsh-ponytail").unwrap();
+        assert_eq!(patch_ids(&profile), vec!["ponytail".to_string()]);
+
+        enable_plugin_at(&profile, "@wenaixi/dsh-ponytail").unwrap();
+        assert!(patch_ids(&profile).is_empty());
+
+        fs::remove_dir_all(&profile).ok();
+    }
+
+    /// 多条目包只有部分条目被禁用时，包整体仍算启用。
+    #[test]
+    fn has_patch_disable_requires_every_package_entry() {
+        let profile = build_bundle_profile(
+            "partial",
+            &[(
+                "dsh-ops",
+                "dsh-ops",
+                "- insert:\n    - id: dsh-ops-shell\n      name: dsh-ops/shell\n    - id: dsh-ops-file\n      name: dsh-ops/file\n",
+            )],
+        );
+        write_patch(&profile, "- id: dsh-ops-shell\n  disabled: true\n");
+        assert!(!has_patch_disable(&profile, "dsh-ops"));
+
+        disable_plugin_at(&profile, "dsh-ops").unwrap();
+        assert!(has_patch_disable(&profile, "dsh-ops"));
+
+        fs::remove_dir_all(&profile).ok();
+    }
+
+    /// 档案没有 `dsh.profile.bundles` 时跳过补 bundle，但 patch 覆盖照常撤除。
+    #[test]
+    fn enable_without_bundles_list_still_strips_patch_disable() {
+        let profile = build_bundle_profile(
+            "no-bundles",
+            &[(
+                "dshmarket",
+                "dshmarket",
+                "- insert:\n    - id: dsh-market\n      name: dshmarket\n",
+            )],
+        );
+        let manifest_path = profile.join("package.json");
+        let mut manifest: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&manifest_path).unwrap()).unwrap();
+        manifest["dsh"] = serde_json::json!({});
+        fs::write(
+            &manifest_path,
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+        write_patch(&profile, "- id: dsh-market\n  disabled: true\n");
+
+        enable_plugin_at(&profile, "dshmarket").unwrap();
+        assert!(patch_ids(&profile).is_empty());
 
         fs::remove_dir_all(&profile).ok();
     }

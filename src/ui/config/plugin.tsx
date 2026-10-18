@@ -495,8 +495,7 @@ export function ConfigPlugin() {
                   {t('plugins.preset')}
                 </Chip>
               </If>
-              {/* 禁用态：profile patch 的 disabled 覆盖，或 bundle 包被官方包级开关移出
-                  bundles（内置插件同样标注，issue #399） */}
+              {/* 禁用态：patch 覆盖或 bundle 包被官方包级开关移出 bundles（issue #399） */}
               <If cond={plugin.disabled}>
                 <Chip size="sm" variant="soft" color="default">
                   {t('plugins.disabled_badge')}
