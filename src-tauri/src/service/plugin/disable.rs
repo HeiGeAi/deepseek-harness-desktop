@@ -300,8 +300,10 @@ pub(crate) fn add_patch_disable(profile: &Path, id: &str) -> Result<bool, String
 /// 幂等：无 patch 文件 / 无法解析 / 无目标禁用条目时返回 `Ok(false)` 且不写盘。
 pub(crate) fn strip_patch_disable(profile: &Path, id: &str) -> Result<bool, String> {
     let path = profile.join(PATCH_FILE);
-    let Ok(content) = fs::read_to_string(&path) else {
-        return Ok(false);
+    let content = match fs::read_to_string(&path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(format!("ENABLE_PATCH_READ_FAILED: {error}")),
     };
     let mut doc: serde_yaml::Value =
         serde_yaml::from_str(&content).map_err(|e| format!("ENABLE_PATCH_PARSE_FAILED: {e}"))?;
@@ -425,27 +427,40 @@ fn add_bundle(profile: &Path, id: &str, manifest: &mut serde_json::Value) -> Res
     Ok(true)
 }
 
+/// 插件是否在 `dsh.profile.bundles` 里；bundle 列表缺失/非数组时返回 `None`。
+fn bundles_include(manifest: &serde_json::Value, id: &str) -> Option<bool> {
+    manifest
+        .pointer("/dsh/profile/bundles")
+        .and_then(serde_json::Value::as_array)
+        .map(|bundles| bundles.iter().any(|bundle| bundle.as_str() == Some(id)))
+}
+
 /// 启用插件的纯逻辑（不依赖 AppHandle，便于单元测试）：撤掉 patch 禁用覆盖；
 /// 若插件是被官方包级开关移出 `dsh.profile.bundles` 的 bundle 包，补回 bundles。
 ///
-/// 先补 bundles 再撤 patch：任一步失败都停在「仍禁用」状态，用户可原样重试。
+/// 清单读-改-写持 `dsh-atomic-write` 的跨进程写锁（官方插件管理器同款），并在锁内
+/// 重新读取，避免把并发切换的结果覆盖回旧快照。先补 bundles 再撤 patch：任一步失败
+/// 都停在「仍禁用」状态，用户可原样重试。
 pub(crate) fn enable_plugin_at(profile: &Path, id: &str) -> Result<(), String> {
     validate_plugin_id(id)?;
-    let mut manifest = read_manifest(profile, "ENABLE")?;
+    let manifest = read_manifest(profile, "ENABLE")?;
     if !is_in_dependencies(&manifest, id) {
         return Err(format!(
             "ENABLE_NOT_INSTALLED: plugin {id} is not installed"
         ));
     }
-    let bundles = manifest
-        .pointer("/dsh/profile/bundles")
-        .and_then(serde_json::Value::as_array);
-    let bundled =
-        bundles.is_some_and(|bundles| bundles.iter().any(|bundle| bundle.as_str() == Some(id)));
-    let restored = bundles.is_some()
-        && declares_bundle(profile, id)
-        && !bundled
-        && add_bundle(profile, id, &mut manifest)?;
+    let restored = match bundles_include(&manifest, id) {
+        Some(false) if declares_bundle(profile, id) => {
+            let _lock = process::acquire_plugin_writer_lock(profile)?;
+            let mut locked = read_manifest(profile, "ENABLE")?;
+            if is_in_dependencies(&locked, id) && bundles_include(&locked, id) == Some(false) {
+                add_bundle(profile, id, &mut locked)?
+            } else {
+                false
+            }
+        }
+        _ => false,
+    };
     let stripped = strip_patch_disable(profile, id)?;
     if !restored && !stripped {
         return Err(format!(
@@ -1039,6 +1054,35 @@ mod tests {
 
         enable_plugin_at(&profile, "dshmarket").unwrap();
         assert!(patch_ids(&profile).is_empty());
+
+        fs::remove_dir_all(&profile).ok();
+    }
+
+    /// patch 不可读时启用必须报错，不能把「补回 bundle」当成功而留下未知禁用态。
+    #[test]
+    fn enable_reports_unreadable_patch_instead_of_success() {
+        let profile = build_bundle_profile(
+            "unreadable-enable",
+            &[(
+                "dshmarket",
+                "dshmarket",
+                "- insert:\n    - id: dsh-market\n      name: dshmarket\n",
+            )],
+        );
+        let manifest_path = profile.join("package.json");
+        let mut manifest: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&manifest_path).unwrap()).unwrap();
+        manifest["dsh"]["profile"]["bundles"] = serde_json::json!([]);
+        fs::write(
+            &manifest_path,
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+        fs::write(profile.join(PATCH_FILE), [0xff, 0xfe]).unwrap();
+
+        let error = enable_plugin_at(&profile, "dshmarket").unwrap_err();
+        assert!(error.starts_with("ENABLE_PATCH_READ_FAILED:"), "{error}");
+        assert!(!profile.join("package.json.lock").exists());
 
         fs::remove_dir_all(&profile).ok();
     }
