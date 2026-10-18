@@ -182,7 +182,8 @@ function removeKnownSession(id: string): void {
 }
 
 function removeIfArchived(id: string): boolean {
-  if (!getServerContext<HostContext>(server).workspaceRegistry?.archivedSessionIds.includes(id))
+  const archivedSessionIds: readonly string[] | undefined = getServerContext<HostContext>(server).workspaceRegistry?.archivedSessionIds
+  if (!archivedSessionIds?.includes(id))
     return false
   removeKnownSession(id)
   return true
