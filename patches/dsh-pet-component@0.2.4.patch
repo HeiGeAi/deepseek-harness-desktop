@@ -1,5 +1,5 @@
 diff --git a/dist/index.mjs b/dist/index.mjs
-index bc8841ebd2eae0f6092fed88108b6234cd2712af..3e421366b39d28e5a16c0a8608d4b26a968c3a37 100644
+index bc8841ebd2eae0f6092fed88108b6234cd2712af..7303fea1e7cd3d26acb7a6a203a71967a8762956 100644
 --- a/dist/index.mjs
 +++ b/dist/index.mjs
 @@ -2722,7 +2722,8 @@ function CodexPet(props) {
@@ -17,7 +17,7 @@ index bc8841ebd2eae0f6092fed88108b6234cd2712af..3e421366b39d28e5a16c0a8608d4b26a
  		for (const id of [...fired.keys()]) if (!bubbles.some((bubble) => bubble.id === id)) fired.delete(id);
  	}, [bubbles, motionRequest]);
 -	const effectiveMotion = bubbleMotion ?? motion;
-+	const effectiveMotion = common.dragging ? motion : bubbleMotion ?? motion;
++	const effectiveMotion = resolvedKind === "codex" && common.dragging ? motion : bubbleMotion ?? motion;
  	const mutteringSuspended = bubbles.some((bubble) => bubble.loading);
  	const { width } = useElementSize(shellRef);
  	const plan = useMemo(() => resolveMutteringPlan({

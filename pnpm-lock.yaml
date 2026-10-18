@@ -487,7 +487,7 @@ catalogs:
 patchedDependencies:
   '@tauri-apps/plugin-http@2.6.0': 6bbec7f8a8e969a867d222e8b2b542d2dbd639ffbaf2184a4df47f330b6ad431
   bumpp: ea42dd1273f65a02e22aa9c25e39361c8dac2320ed2fbff9c58d2bd3f46a40a3
-  dsh-pet-component@0.2.4: 18d68323334600637ce60fbb73071b85619b46c70bfed93bb66223d34c371fcf
+  dsh-pet-component@0.2.4: af2fe0b08ae58347210709d950157c2716766b3e44d33eb7328e50dfe49398b2
 
 importers:
 
@@ -534,7 +534,7 @@ importers:
         version: 2.4.4
       dsh-pet-component:
         specifier: catalog:runtime
-        version: 0.2.4(patch_hash=18d68323334600637ce60fbb73071b85619b46c70bfed93bb66223d34c371fcf)(change-case@5.4.4)(qrcode@1.5.4)(react@19.2.8)
+        version: 0.2.4(patch_hash=af2fe0b08ae58347210709d950157c2716766b3e44d33eb7328e50dfe49398b2)(change-case@5.4.4)(qrcode@1.5.4)(react@19.2.8)
       expo:
         specifier: catalog:native
         version: 57.0.26(@babel/core@7.29.7)(@expo/dom-webview@57.0.1)(@expo/metro-runtime@57.0.16)(expo-router@57.0.24)(react-dom@19.2.8(react@19.2.8))(react-native-webview@13.16.1(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.8))(react@19.2.8))(react-native-worklets@0.10.1(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.8))(react@19.2.8))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.8))(react@19.2.8)(typescript@5.8.3)
@@ -14544,7 +14544,7 @@ snapshots:
       - crossws
       - ocache
 
-  dsh-pet-component@0.2.4(patch_hash=18d68323334600637ce60fbb73071b85619b46c70bfed93bb66223d34c371fcf)(change-case@5.4.4)(qrcode@1.5.4)(react@19.2.8):
+  dsh-pet-component@0.2.4(patch_hash=af2fe0b08ae58347210709d950157c2716766b3e44d33eb7328e50dfe49398b2)(change-case@5.4.4)(qrcode@1.5.4)(react@19.2.8):
     dependencies:
       '@gravity-ui/icons': 2.21.0(react@19.2.8)
       '@reause/core': 0.1.7(react@19.2.8)
