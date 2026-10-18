@@ -193,10 +193,13 @@ pub(crate) fn acquire_plugin_writer_lock(profile_dir: &Path) -> Result<PluginWri
         {
             Ok(mut file) => {
                 use std::io::Write;
-                file.write_all(format!("{}\n", std::process::id()).as_bytes())
-                    .and_then(|()| file.sync_all())
-                    .map_err(|e| format!("PLUGIN_WRITER_LOCK_WRITE_FAILED: {e}"))?;
-                return Ok(PluginWriterLock { path });
+                let guard = PluginWriterLock { path };
+                let written = file
+                    .write_all(format!("{}\n", std::process::id()).as_bytes())
+                    .and_then(|()| file.sync_all());
+                drop(file);
+                written.map_err(|e| format!("PLUGIN_WRITER_LOCK_WRITE_FAILED: {e}"))?;
+                return Ok(guard);
             }
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                 take_over_exited_plugin_writer_lock(&path);
@@ -222,23 +225,49 @@ fn take_over_exited_plugin_writer_lock(path: &Path) -> bool {
     if !orphan_lock_should_clear(&record, plugin_process_has_exited) {
         return false;
     }
-    let claim = path.with_file_name(format!(
-        "package.json.lock.takeover-{:016x}",
-        lock_record_hash(&record)
-    ));
-    if std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&claim)
-        .is_err()
-    {
+    let Some(claim) = claim_takeover(path, &record) else {
         return false;
-    }
+    };
     let still_stale = std::fs::read_to_string(path).ok().as_deref() == Some(record.as_str())
         && orphan_lock_should_clear(&record, plugin_process_has_exited);
     let removed = still_stale && std::fs::remove_file(path).is_ok();
     let _ = std::fs::remove_file(&claim);
     removed
+}
+
+/// 认领一次接管：认领文件记录持有者 PID，已退出持有者留下的认领可被回收。
+fn claim_takeover(path: &Path, record: &str) -> Option<std::path::PathBuf> {
+    use std::io::Write;
+
+    let claim = path.with_file_name(format!(
+        "package.json.lock.takeover-{:016x}",
+        lock_record_hash(record)
+    ));
+    for attempt in 0..2 {
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&claim)
+        {
+            Ok(mut file) => {
+                let _ = file
+                    .write_all(format!("{}\n", std::process::id()).as_bytes())
+                    .and_then(|()| file.sync_all());
+                return Some(claim);
+            }
+            Err(error) if attempt == 0 && error.kind() == std::io::ErrorKind::AlreadyExists => {
+                let Ok(owner) = std::fs::read_to_string(&claim) else {
+                    return None;
+                };
+                if !orphan_lock_should_clear(&owner, plugin_process_has_exited) {
+                    return None;
+                }
+                let _ = std::fs::remove_file(&claim);
+            }
+            Err(_) => return None,
+        }
+    }
+    None
 }
 
 fn lock_record_hash(record: &str) -> u64 {
@@ -748,6 +777,68 @@ mod tests {
         assert!(!path.exists());
 
         assert!(!clear_orphan_plugin_writer_lock(&dir), "no lock, no-op");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn writer_lock_test_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "dsh-writer-lock-{}-{:?}-{tag}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn writer_lock_records_holder_and_releases_on_drop() {
+        let dir = writer_lock_test_dir("release");
+        let path = plugin_writer_lock_path(&dir);
+
+        let guard = acquire_plugin_writer_lock(&dir).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap().trim(),
+            std::process::id().to_string()
+        );
+
+        drop(guard);
+        assert!(!path.exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn writer_lock_takes_over_dead_holder() {
+        let dir = writer_lock_test_dir("takeover");
+        let path = plugin_writer_lock_path(&dir);
+        std::fs::write(&path, "4000000\n").unwrap();
+
+        let guard = acquire_plugin_writer_lock(&dir).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap().trim(),
+            std::process::id().to_string()
+        );
+
+        drop(guard);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn writer_lock_reclaims_claim_left_by_exited_process() {
+        let dir = writer_lock_test_dir("stale-claim");
+        let path = plugin_writer_lock_path(&dir);
+        let record = "4000000\n".to_string();
+        std::fs::write(&path, &record).unwrap();
+        let claim = path.with_file_name(format!(
+            "package.json.lock.takeover-{:016x}",
+            lock_record_hash(&record)
+        ));
+        std::fs::write(&claim, "3999999\n").unwrap();
+
+        let guard = acquire_plugin_writer_lock(&dir).unwrap();
+        assert!(!claim.exists());
+
+        drop(guard);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
