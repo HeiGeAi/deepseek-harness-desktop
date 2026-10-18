@@ -495,9 +495,9 @@ export function ConfigPlugin() {
                   {t('plugins.preset')}
                 </Chip>
               </If>
-              {/* 禁用态：profile 的 cordis.patch.yml 中的 disabled 覆盖（内置插件同样标注，
-                  issue #399：Scheduler/Pet 行此前只有「内置」） */}
-              <If cond={plugin.patchDisabled}>
+              {/* 禁用态：profile patch 的 disabled 覆盖，或 bundle 包被官方包级开关移出
+                  bundles（内置插件同样标注，issue #399） */}
+              <If cond={plugin.disabled}>
                 <Chip size="sm" variant="soft" color="default">
                   {t('plugins.disabled_badge')}
                 </Chip>
@@ -537,7 +537,7 @@ export function ConfigPlugin() {
                 </span>
               </Chip>
             </If>
-            <If cond={plugin.patchDisabled}>
+            <If cond={plugin.disabled}>
               <Chip
                 className={actionChip({ busy: rowBusy(plugin.id) })}
                 variant="primary"
@@ -551,7 +551,7 @@ export function ConfigPlugin() {
                 </span>
               </Chip>
             </If>
-            <If cond={!plugin.patchDisabled}>
+            <If cond={!plugin.disabled}>
               <Chip
                 className={actionChip({ busy: rowBusy(plugin.id) })}
                 size="sm"
