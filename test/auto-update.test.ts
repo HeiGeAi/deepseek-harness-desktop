@@ -35,6 +35,23 @@ describe('automatic update opt-out contract', () => {
     expect(source).toContain('super::auto_update_enabled(app_handle)')
   })
 
+  it('drops the pending installer as soon as the switch is turned off', () => {
+    const bridge = read('src-tauri/src/bridge/config.rs')
+    const update = read('src-tauri/src/service/update/mod.rs')
+
+    expect(update).toContain('pub fn clear_pending_installer')
+    expect(bridge).toContain('if auto_update == Some(false)')
+    expect(bridge).toContain('update::clear_pending_installer(&app_handle)')
+  })
+
+  it('suppresses the silent download no matter who asks for a check', () => {
+    const source = read('src/store/modules/desktop-updater/store.ts')
+
+    // 手动「检查更新」也走 check()：开关关闭后只展示对话框，下载留给「立即更新」
+    expect(source).toContain('if (setting.auto_update)')
+    expect(source).toContain('void this.download()')
+  })
+
   it('stops polling and silent downloads until the switch is on and settings are hydrated', () => {
     const source = read('src/layout/index.tsx')
 

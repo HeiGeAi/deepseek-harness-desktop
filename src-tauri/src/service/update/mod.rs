@@ -44,6 +44,14 @@ pub(super) fn auto_update_enabled(app_handle: &tauri::AppHandle) -> bool {
     crate::config::get_store_dat_setting(app_handle).auto_update
 }
 
+/// 丢弃「待安装」标记（用户关闭自动更新时调用）。
+///
+/// 只在退出时按当前设置判断还不够：用户关掉开关、退出前又打开，旧的已下载安装包
+/// 会立刻重新变成「退出即安装」——那正是开关要避免的未经确认替换。
+pub fn clear_pending_installer(app_handle: &tauri::AppHandle) {
+    pending::set(app_handle, None);
+}
+
 /// 仓库主页（同时用于构造 atom / expanded_assets / 下载地址）
 const REPO_URL: &str = "https://github.com/hairyf/deepseek-harness-desktop";
 /// 版权信息（与 tauri.conf.json bundle.copyright 保持一致）
