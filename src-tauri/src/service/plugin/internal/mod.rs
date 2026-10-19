@@ -1171,16 +1171,15 @@ fn is_link_materialization_failure(error: &str, need: &[(String, String, PathBuf
 
 /// 诊断是否点名了「本轮待装内置插件解析不到」。`dsh` 的措辞是
 /// `cannot resolve profile bundle "<package>"`，包名即 `dsh.profile.bundles` 里的
-/// 安装名；同时接受单引号与预设 id（scoped 包两者可能不同）。
+/// 安装名；只比对安装名——预设 id 与安装名不同（scoped 包）时用 id 比对，会把用户
+/// 同名的普通依赖误认成内置插件。
 fn names_unresolved_internal_bundle(error: &str, need: &[(String, String, PathBuf)]) -> bool {
     if !error.contains("cannot resolve profile bundle") {
         return false;
     }
-    need.iter().any(|(id, name, _)| {
-        [name.as_str(), id.as_str()].into_iter().any(|candidate| {
-            error.contains(&format!("cannot resolve profile bundle \"{candidate}\""))
-                || error.contains(&format!("cannot resolve profile bundle '{candidate}'"))
-        })
+    need.iter().any(|(_, name, _)| {
+        error.contains(&format!("cannot resolve profile bundle \"{name}\""))
+            || error.contains(&format!("cannot resolve profile bundle '{name}'"))
     })
 }
 
@@ -1687,10 +1686,24 @@ mod tests {
             error,
             &need_entries(&["dsh-tauri", "dsh-tauri-ui"])
         ));
-        // scoped 安装名与预设 id 不同：任一命中即可归因
+        // scoped 包：诊断里出现的是安装名
         assert!(is_link_materialization_failure(
             "cannot resolve profile bundle '@scope/dsh-tauri' from the dsh installation",
             &need_entries(&["@scope/dsh-tauri"])
+        ));
+        // 预设 id 与安装名不同时只认安装名：同名 id 出现在错误里不能归因
+        let scoped = vec![(
+            "dsh-tauri".to_string(),
+            "@scope/dsh-tauri".to_string(),
+            PathBuf::from("node_modules/@scope/dsh-tauri"),
+        )];
+        assert!(!is_link_materialization_failure(
+            "cannot resolve profile bundle \"dsh-tauri\" from the dsh installation",
+            &scoped
+        ));
+        assert!(is_link_materialization_failure(
+            "cannot resolve profile bundle \"@scope/dsh-tauri\" from the dsh installation",
+            &scoped
         ));
         // 点名的不是本轮待装入口（用户自己的依赖 / 其它包）：绝不兜底
         assert!(!is_link_materialization_failure(
