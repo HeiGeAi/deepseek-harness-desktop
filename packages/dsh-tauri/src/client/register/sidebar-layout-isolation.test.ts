@@ -42,7 +42,6 @@ const native = {
 }
 
 function stubGlobals(): void {
-  vi.stubGlobal('Storage', FakeStorage)
   vi.stubGlobal('window', { localStorage: shared, sessionStorage: own })
   vi.stubGlobal('localStorage', shared)
   vi.stubGlobal('sessionStorage', own)
@@ -61,7 +60,6 @@ function sharedValue(key: string): string | null {
 
 describe('isolateSidebarLayout', () => {
   beforeEach(() => {
-    vi.stubGlobal('Storage', FakeStorage)
     attributes.clear()
     shared.map.clear()
     own.map.clear()

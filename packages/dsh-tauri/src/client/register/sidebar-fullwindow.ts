@@ -84,18 +84,21 @@ export function isolateSidebarLayout(sessionId: string): void {
   catch (error) {
     reportPluginError(error)
   }
-  const { getItem, setItem, removeItem } = Storage.prototype
+  const proto = Object.getPrototypeOf(own) as Storage | null
+  if (proto === null || typeof proto.getItem !== 'function')
+    return
+  const { getItem, setItem, removeItem } = proto
   const routed = (target: string) => target.startsWith(LAYOUT_STORAGE_PREFIX)
-  Storage.prototype.getItem = function (target: string): string | null {
+  proto.getItem = function (target: string): string | null {
     return routed(target) ? getItem.call(own, target) : getItem.call(this, target)
   }
-  Storage.prototype.setItem = function (target: string, value: string): void {
+  proto.setItem = function (target: string, value: string): void {
     if (routed(target))
       setItem.call(own, target, value)
     else
       setItem.call(this, target, value)
   }
-  Storage.prototype.removeItem = function (target: string): void {
+  proto.removeItem = function (target: string): void {
     if (routed(target))
       removeItem.call(own, target)
     else
