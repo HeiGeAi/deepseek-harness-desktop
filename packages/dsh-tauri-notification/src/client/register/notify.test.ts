@@ -93,16 +93,13 @@ interface Harness {
 }
 
 /** 注册通知运行时，并返回可发布快照的两个数据源。 */
-function startNotify(initialList: SessionListStateFace, initialStatuses: ReadonlyMap<string, SessionStatusFace>): Harness {
+function startNotify(initialList: SessionListStateFace, initialStatuses: ReadonlyMap<string, SessionStatusFace>, archiveAware = true): Harness {
   const list = snapshotSource(initialList)
   const sessionStatus = snapshotSource(initialStatuses)
   const workspaces = snapshotSource<{ archivedSessionIds: readonly string[] }>({ archivedSessionIds: [] })
-  mocks.adapter = {
-    has: (capability: string) => capability === 'workspaces.list',
-    workspaces: { list: workspaces },
-    sessionList: () => ({ current: undefined }),
-    openSession: () => ({ status: 'opened' }),
-  }
+  mocks.adapter = archiveAware
+    ? { has: (capability: string) => capability === 'workspaces.list', workspaces: { list: workspaces }, sessionList: () => ({ current: undefined }), openSession: () => ({ status: 'opened' }) }
+    : { has: () => false, sessionList: () => ({ current: undefined }), openSession: () => ({ status: 'opened' }) }
   notifyFeature.call({
     get: (name: string) => {
       if (name === 'sessions')
@@ -196,6 +193,20 @@ describe('notification notify runtime', () => {
     await vi.advanceTimersByTimeAsync(1000)
     expect(mocks.showNativeNotification).toHaveBeenCalledTimes(1)
     expect(mocks.showNativeNotification).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'main', body: 'Turn completed' }))
+    expect(mocks.playSound).toHaveBeenCalledTimes(1)
+  })
+
+  it('宿主没有归档快照时照常通知，只是不做归档抑制', async () => {
+    const { list, sessionStatus } = startNotify(
+      { ids: ['main'], byId: { main: summary('main', { running: true }) } },
+      new Map([['main', status(true)]]),
+      false,
+    )
+    list.publish({ ids: ['main'], byId: { main: summary('main', { running: false }) } })
+    sessionStatus.publish(new Map([['main', status(false)]]))
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(mocks.showNativeNotification).toHaveBeenCalledTimes(1)
     expect(mocks.playSound).toHaveBeenCalledTimes(1)
   })
 

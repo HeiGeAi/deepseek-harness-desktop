@@ -40,13 +40,10 @@ interface SessionObservation {
  * 服务缺席时降级而不是报错。
  */
 export const notifyFeature = defineRegister<ClientContext>((controller, ctx, adapter) => {
-  if (!adapter.has('workspaces.list')) {
-    console.warn(`[${PLUGIN_ID}] notifications disabled: workspaces.list is unavailable`)
-    return
-  }
-  const workspaceSource = adapter.workspaces.list as AdapterListProjection<WorkspaceSnapshot>
+  // 归档集合缺席时只丢掉「归档抑制」，通知照常发：新版宿主才有这份快照。
+  const workspaceSource = adapter.has('workspaces.list') ? adapter.workspaces.list as AdapterListProjection<WorkspaceSnapshot> : undefined
   const isArchived = (sessionId: string): boolean => {
-    const archivedSessionIds: readonly string[] = workspaceSource.getSnapshot().archivedSessionIds
+    const archivedSessionIds: readonly string[] = workspaceSource?.getSnapshot().archivedSessionIds ?? []
     return archivedSessionIds.includes(sessionId)
   }
   const sound = createSoundPlayer()
@@ -350,7 +347,8 @@ export const notifyFeature = defineRegister<ClientContext>((controller, ctx, ada
   }
 
   // 会话列表是常驻服务：用它驱动观察，顺带拿到标题与当前会话。
-  controller.add(workspaceSource.subscribe(observe))
+  if (workspaceSource)
+    controller.add(workspaceSource.subscribe(observe))
   const listSource = readSessions()?.list
   if (listSource) {
     controller.add(listSource.subscribe(observe))

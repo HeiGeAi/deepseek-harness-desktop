@@ -70,6 +70,8 @@ interface FakeHost {
   workspaceRegistry: { archivedSessionIds: readonly string[] }
   emitStop: (sessionId: string) => void
   emitStatus: (session: unknown, status: string) => void
+  /** 发一次存储域变更广播（归档集合变化的来源）。 */
+  emitDomainChange: () => void
   /** 发一帧 agent-scoped 活体助手流帧（`agent/assistant-stream` 的 chunk 帧）。 */
   emitAssistantStream: (session: unknown, chunk: unknown) => void
   /** 启动真实 http server 并接入一个 SSE 消费者。 */
@@ -175,6 +177,10 @@ function createHost(options: FakeHostOptions = {}): FakeHost {
     emitStatus: (session, status) => {
       for (const handler of listeners.get('agent/status') ?? [])
         handler({ agent: { session }, status })
+    },
+    emitDomainChange: () => {
+      for (const handler of listeners.get('domain/changed') ?? [])
+        handler()
     },
     titleLookups: () => lookups,
     listenerCount: name => listeners.get(name)?.size ?? 0,
@@ -359,6 +365,26 @@ describe('pet host apply()', () => {
     )
     expect(connection.payloads.map(frame => frame.payload.id)).toEqual(['barrier', 'barrier'])
     expect(host.titleLookups()).toBe(1)
+  })
+
+  it('归档广播到达即移除气泡，不需要该会话再产生事件', async () => {
+    const host = createHost()
+    apply(host.ctx)
+    const connection = await host.connect()
+    const session = { id: 'archived' }
+    host.emitEvent(session, { type: 'turn/start', seq: 0, time: 0, data: {} })
+    host.emitEvent(session, { type: 'turn/end', seq: 1, time: 1, data: { reason: { kind: 'completed' } } })
+    await connection.waitFor(
+      () => connection.payloads.find(frame => frame.payload.id === session.id && frame.payload.workStatus === 'success'),
+      '归档前成功态',
+    )
+
+    host.workspaceRegistry.archivedSessionIds = [session.id]
+    host.emitDomainChange()
+    await connection.waitFor(
+      () => connection.payloads.find(frame => frame.action === 'remove' && frame.payload.id === session.id),
+      '归档广播后移除',
+    )
   })
 
   it.each(['completed', 'error'])('未归档会话保留 %s 终态，不被 idle 清除', async (kind) => {

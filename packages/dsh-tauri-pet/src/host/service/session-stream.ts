@@ -2,7 +2,7 @@ import type { HostContext } from 'dsh-tauri'
 import type { PetSessionPayload, SessionStreamSink } from '../types'
 import type { PetSessionEvent, PetSessionPeer, ProjectionRegistryLike, TitleServiceLike } from './session-stream.types'
 import { getServerContext } from 'dsh-h3/utils'
-import { defineService } from 'dsh-tauri'
+import { defineService, watchArchive } from 'dsh-tauri'
 import {
   closeSessionBus,
   isSessionBusAttached,
@@ -70,7 +70,7 @@ function attachSessionBus(): void {
   if (isSessionBusAttached())
     return
   // 惰性解析：apply 时服务未必就绪（装配顺序不保证），首个消费者接入时才读。
-  const ctx = getServerContext(server)
+  const ctx = getServerContext<HostContext>(server)
   titleService = ctx.get?.('sessionTitle') as TitleServiceLike | undefined
   projections = ctx.get?.('sessionProjections') as ProjectionRegistryLike | undefined
   const disposeEvent = ctx.on('session/event', handleSessionEvent) as () => void
@@ -80,12 +80,18 @@ function attachSessionBus(): void {
   // 活体流式帧：0.1.6 起流式增量只在这条 agent-scoped 通知上，是「思考 · …」的唯一来源。
   const disposeFrame = ctx.on('agent/assistant-stream', handleAssistantStream) as () => void
   const disposeStop = ctx.on('workspace/session-stop', ({ sessionId }) => removeKnownSession(sessionId)) as () => void
+  // 归档集合变化：归档后的会话不再产生任何事件，只能靠这条信号把气泡摘掉。
+  const disposeArchive = watchArchive(ctx, (archived) => {
+    for (const id of archived)
+      removeKnownSession(id)
+  })
   setSessionBusDispose(() => {
     disposeEvent()
     disposeDisposed()
     disposeStatus()
     disposeFrame()
     disposeStop()
+    disposeArchive()
     titleService = undefined
     projections = undefined
   })
