@@ -207,6 +207,33 @@ describe('navigationFeature', () => {
     dispose()
   })
 
+  it('会话已消费过（刷新出的新文档）仍重新就位全屏形态，但不重复打开会话', async () => {
+    const host = stubHost()
+    host.window[NAVIGATION_GLOBAL] = { sessionId: 'target', presentation: 'full-sidebar' }
+    const storage = host.window.sessionStorage as { setItem: (key: string, value: string) => void }
+    storage.setItem('__DSH_NAVIGATION_CONSUMED__', 'target')
+    const clicked: string[] = []
+    const marked: string[] = []
+    vi.stubGlobal('document', {
+      documentElement: { hasAttribute: () => false, setAttribute: (name: string, value: string) => marked.push(`${name}=${value}`) },
+      querySelector: (selector: string) => selector === '[data-sidebar-right-expand]' ? { click: () => clicked.push('expand') } : null,
+    })
+    let ids: string[] = []
+    const openSession = vi.fn(() => ({ status: 'opened', value: Promise.resolve() }))
+
+    const dispose = navigationFeature.call(ctxWithServices({
+      sessions: stubSessions(() => ids),
+      uiWorkspace: { openSession },
+    }))
+
+    ids = ['target']
+    await vi.advanceTimersByTimeAsync(500)
+    expect(openSession).not.toHaveBeenCalled()
+    expect(marked).toContain('data-dsh-tauri-full-sidebar=presenting')
+    expect(clicked).toEqual(['expand'])
+    dispose()
+  })
+
   it('带 presentation=full-sidebar 的跳转在打开会话后展开右列并切入全屏', async () => {
     const host = stubHost()
     host.window[NAVIGATION_GLOBAL] = { sessionId: 'target', presentation: 'full-sidebar' }
@@ -215,7 +242,7 @@ describe('navigationFeature', () => {
     let mode: { getAttribute: (name: string) => string | null, click: () => void } | undefined
     const expand = { click: () => clicked.push('expand') }
     vi.stubGlobal('document', {
-      documentElement: { setAttribute: (name: string, value: string) => marked.push(`${name}=${value}`) },
+      documentElement: { hasAttribute: () => false, setAttribute: (name: string, value: string) => marked.push(`${name}=${value}`) },
       querySelector: (selector: string) => {
         if (selector === '[data-sidebar-right-mode]')
           return mode ?? null
@@ -233,7 +260,7 @@ describe('navigationFeature', () => {
     ids = ['target']
     await vi.advanceTimersByTimeAsync(500)
     expect(openSession).toHaveBeenCalledExactlyOnceWith('target')
-    expect(marked[0]).toBe('data-dsh-tauri-full-sidebar=presenting')
+    expect(marked).toContain('data-dsh-tauri-full-sidebar=presenting')
 
     await vi.advanceTimersByTimeAsync(250)
     expect(clicked).toEqual(['expand'])

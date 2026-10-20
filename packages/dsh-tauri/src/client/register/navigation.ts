@@ -3,7 +3,7 @@ import type { ClientAdapter, RegisterController } from './index'
 import { listenParent } from '../service/listen-parent'
 import { reportPluginError } from '../utils/error'
 import { defineRegister } from './index'
-import { markFullSidebarPresenting, PRESENTATION_FULL_SIDEBAR, presentFullSidebar } from './sidebar-fullwindow'
+import { isolateSidebarLayout, PRESENTATION_FULL_SIDEBAR, presentFullSidebar } from './sidebar-fullwindow'
 
 /** 宿主 → iframe：新建会话命令。 */
 const CMD_NEW_SESSION = 'dsh://session:new'
@@ -45,24 +45,24 @@ function markInjectedSessionConsumed(sessionId: string): void {
 
 /**
  * 取走壳层注入的跳转载荷（每次文档只取一次）。
- * @returns 会话 id 与窗口形态；已被消费或格式不对的字段各自丢弃。
+ * @returns 会话 id、窗口形态与「会话已打开过」；格式不对的字段各自丢弃。
  */
-function takeInjectedNavigation(): { sessionId?: string, presentation?: string } {
+function takeInjectedNavigation(): { sessionId?: string, presentation?: string, consumed: boolean } {
   const host = window as unknown as Record<string, unknown>
   const payload = host[NAVIGATION_GLOBAL] as InjectedNavigation | undefined
   if (payload === undefined)
-    return {}
+    return { consumed: false }
   delete host[NAVIGATION_GLOBAL]
   if (typeof payload !== 'object' || payload === null)
-    return {}
+    return { consumed: false }
   const presentation = payload.presentation === PRESENTATION_FULL_SIDEBAR ? PRESENTATION_FULL_SIDEBAR : undefined
   const sessionId = payload.sessionId
-  if (typeof sessionId !== 'string' || sessionId.trim() === '' || injectedSessionConsumed(sessionId))
-    return { presentation }
-  return { sessionId, presentation }
+  if (typeof sessionId !== 'string' || sessionId.trim() === '')
+    return { presentation, consumed: false }
+  return { sessionId, presentation, consumed: injectedSessionConsumed(sessionId) }
 }
 
-function consumeInjectedSession(controller: RegisterController, adapter: ClientAdapter, sessionId: string, presentation?: string): void {
+function consumeInjectedSession(controller: RegisterController, adapter: ClientAdapter, sessionId: string): void {
   let settled = false
   let cancelPoll = () => {}
   let cancelTimeout = () => {}
@@ -90,8 +90,6 @@ function consumeInjectedSession(controller: RegisterController, adapter: ClientA
         throw new Error(outcome.reason)
       await outcome.value
       markInjectedSessionConsumed(sessionId)
-      if (presentation === PRESENTATION_FULL_SIDEBAR)
-        presentFullSidebar(controller)
     })().catch((error: unknown) => reportPluginError(error))
   }
 
@@ -114,9 +112,14 @@ export const navigationFeature = defineRegister<ClientContext>((controller, _ctx
       void adapter.addWorkspace({ openSession: true }).catch((error: unknown) => reportPluginError(error))
   }, [CMD_NEW_SESSION, CMD_ADD_WORKSPACE]))
 
-  const { sessionId, presentation } = takeInjectedNavigation()
-  if (sessionId !== undefined && presentation === PRESENTATION_FULL_SIDEBAR)
-    markFullSidebarPresenting()
-  if (sessionId !== undefined)
-    consumeInjectedSession(controller, adapter, sessionId, presentation)
+  const { sessionId, presentation, consumed } = takeInjectedNavigation()
+  if (presentation === PRESENTATION_FULL_SIDEBAR) {
+    // 先把本窗口的右栏布局从共享存储里隔离出来，否则两个窗口会互相覆盖形态。
+    if (sessionId !== undefined)
+      isolateSidebarLayout(sessionId)
+    // 形态先就位：它自带看门狗，会话没打开（例如主窗口中途关闭）也会自己揭开，不会留白屏。
+    presentFullSidebar(controller)
+  }
+  if (sessionId !== undefined && !consumed)
+    consumeInjectedSession(controller, adapter, sessionId)
 })

@@ -284,7 +284,7 @@ describe('apply', () => {
     expect(env.styles).toHaveLength(1)
     expect(env.sent.filter(message => message.type === 'dsh://plugin-error')).toEqual([])
     expect(env.windowListeners()).toBe(3)
-    expect(env.documentListeners()).toBe(2)
+    expect(env.documentListeners()).toBe(3)
 
     for (const dispose of disposers.splice(0))
       await dispose()
