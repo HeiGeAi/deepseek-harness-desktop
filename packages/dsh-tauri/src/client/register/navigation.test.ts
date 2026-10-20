@@ -206,4 +206,51 @@ describe('navigationFeature', () => {
     expect(clicked[1]).toContain('添加工作区')
     dispose()
   })
+
+  it('带 presentation=full-sidebar 的跳转在打开会话后展开右列并切入全屏', async () => {
+    const host = stubHost()
+    host.window[NAVIGATION_GLOBAL] = { sessionId: 'target', presentation: 'full-sidebar' }
+    const clicked: string[] = []
+    const marked: string[] = []
+    let mode: { getAttribute: (name: string) => string | null, click: () => void } | undefined
+    const expand = { click: () => clicked.push('expand') }
+    vi.stubGlobal('document', {
+      documentElement: { setAttribute: (name: string) => marked.push(name) },
+      querySelector: (selector: string) => {
+        if (selector === '[data-sidebar-right-mode]')
+          return mode ?? null
+        return selector === '[data-sidebar-right-expand]' ? expand : null
+      },
+    })
+    let ids: string[] = []
+    const openSession = vi.fn(() => ({ status: 'opened', value: Promise.resolve() }))
+
+    const dispose = navigationFeature.call(ctxWithServices({
+      sessions: stubSessions(() => ids),
+      uiWorkspace: { openSession },
+    }))
+
+    ids = ['target']
+    await vi.advanceTimersByTimeAsync(500)
+    expect(openSession).toHaveBeenCalledExactlyOnceWith('target')
+    expect(marked).toEqual(['data-dsh-tauri-full-sidebar'])
+
+    await vi.advanceTimersByTimeAsync(250)
+    expect(clicked).toEqual(['expand'])
+
+    let fullscreen = 'fullscreen'
+    mode = {
+      getAttribute: () => fullscreen,
+      click: () => {
+        clicked.push('mode')
+        fullscreen = 'push'
+      },
+    }
+    await vi.advanceTimersByTimeAsync(500)
+    expect(clicked).toEqual(['expand', 'mode'])
+
+    await vi.advanceTimersByTimeAsync(31_000)
+    expect(clicked).toEqual(['expand', 'mode'])
+    dispose()
+  })
 })

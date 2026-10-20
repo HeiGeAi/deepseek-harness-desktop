@@ -3,6 +3,7 @@ import type { ClientAdapter, RegisterController } from './index'
 import { listenParent } from '../service/listen-parent'
 import { reportPluginError } from '../utils/error'
 import { defineRegister } from './index'
+import { PRESENTATION_FULL_SIDEBAR, presentFullSidebar } from './sidebar-fullwindow'
 
 /** 宿主 → iframe：新建会话命令。 */
 const CMD_NEW_SESSION = 'dsh://session:new'
@@ -21,6 +22,7 @@ const NAVIGATION_TIMEOUT_MS = 30_000
 
 interface InjectedNavigation {
   sessionId?: unknown
+  presentation?: unknown
 }
 
 function injectedSessionConsumed(sessionId: string): boolean {
@@ -41,19 +43,26 @@ function markInjectedSessionConsumed(sessionId: string): void {
   }
 }
 
-function takeInjectedSession(): string | undefined {
+/**
+ * 取走壳层注入的跳转载荷（每次文档只取一次）。
+ * @returns 会话 id 与窗口形态；已被消费或格式不对的字段各自丢弃。
+ */
+function takeInjectedNavigation(): { sessionId?: string, presentation?: string } {
   const host = window as unknown as Record<string, unknown>
   const payload = host[NAVIGATION_GLOBAL] as InjectedNavigation | undefined
   if (payload === undefined)
-    return undefined
+    return {}
   delete host[NAVIGATION_GLOBAL]
-  const sessionId = typeof payload === 'object' && payload !== null ? payload.sessionId : undefined
+  if (typeof payload !== 'object' || payload === null)
+    return {}
+  const presentation = payload.presentation === PRESENTATION_FULL_SIDEBAR ? PRESENTATION_FULL_SIDEBAR : undefined
+  const sessionId = payload.sessionId
   if (typeof sessionId !== 'string' || sessionId.trim() === '' || injectedSessionConsumed(sessionId))
-    return undefined
-  return sessionId
+    return { presentation }
+  return { sessionId, presentation }
 }
 
-function consumeInjectedSession(controller: RegisterController, adapter: ClientAdapter, sessionId: string): void {
+function consumeInjectedSession(controller: RegisterController, adapter: ClientAdapter, sessionId: string, presentation?: string): void {
   let settled = false
   let cancelPoll = () => {}
   let cancelTimeout = () => {}
@@ -81,6 +90,8 @@ function consumeInjectedSession(controller: RegisterController, adapter: ClientA
         throw new Error(outcome.reason)
       await outcome.value
       markInjectedSessionConsumed(sessionId)
+      if (presentation === PRESENTATION_FULL_SIDEBAR)
+        presentFullSidebar(controller)
     })().catch((error: unknown) => reportPluginError(error))
   }
 
@@ -103,7 +114,7 @@ export const navigationFeature = defineRegister<ClientContext>((controller, _ctx
       void adapter.addWorkspace({ openSession: true }).catch((error: unknown) => reportPluginError(error))
   }, [CMD_NEW_SESSION, CMD_ADD_WORKSPACE]))
 
-  const sessionId = takeInjectedSession()
+  const { sessionId, presentation } = takeInjectedNavigation()
   if (sessionId !== undefined)
-    consumeInjectedSession(controller, adapter, sessionId)
+    consumeInjectedSession(controller, adapter, sessionId, presentation)
 })

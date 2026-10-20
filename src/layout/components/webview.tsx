@@ -14,11 +14,13 @@ import { useIframePost } from '@/hooks/use-iframe-post'
 import { useListen } from '@/hooks/use-listen'
 import { store } from '@/store'
 import { Recovery } from '@/ui/plugin/recovery'
+import { FullSidebarNavbar } from './full-sidebar-navbar'
 import { Iframe } from './iframe'
 import { REMOTE_SECTION, REMOTE_TAB_ACCESS, REMOTE_TAB_MACHINES } from './nav-bridge'
 import { Navbar } from './navbar'
 import { Setup } from './setup'
 import { PreinstallSetup } from './setup-preinstall'
+import { isFullSidebarWindow } from './window-presentation'
 
 interface NavBridgeMessage {
   type?: string
@@ -139,6 +141,9 @@ export function Webview() {
     }
   }
 
+  // 窗口形态在进程内不会变：建窗时注入一次载荷，这里读一次就够。
+  const fullSidebar = isFullSidebarWindow()
+
   const bridge = live
     ? {
         onToggleSidebar: () => post({ type: 'dsh://sidebar:toggle' }),
@@ -155,7 +160,11 @@ export function Webview() {
     <main className="relative flex flex-col min-h-0 flex-1" style={dshStyle.frame || {}}>
       {/* 挂在 Iframe 外：启动页/预装引导/恢复页先于 Iframe 渲染，否则拿不到透明与调色板 token */}
       <style>{appearanceCss}</style>
-      <Navbar onRemoteChange={handleRemoteChange} sidebarCollapsed={sidebarCollapsed} {...bridge} />
+      <If
+        cond={fullSidebar}
+        then={<FullSidebarNavbar />}
+        else={<Navbar onRemoteChange={handleRemoteChange} sidebarCollapsed={sidebarCollapsed} {...bridge} />}
+      />
       <div className="relative flex min-h-0 flex-1">
         {renderContent()}
       </div>
