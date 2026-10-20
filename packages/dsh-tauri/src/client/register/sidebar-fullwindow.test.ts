@@ -10,8 +10,10 @@ vi.mock('../service/invoke', () => ({ invoke: vi.fn(() => Promise.resolve()) }))
 
 interface FakeNode {
   attributes: Map<string, string>
+  clicks: number
   innerHTML: string
   parentElement: FakeContainer | null
+  title: string
   setAttribute: (name: string, value: string) => void
   getAttribute: (name: string) => string | null
   addEventListener: (type: string, handler: () => void) => void
@@ -28,18 +30,24 @@ function createNode(): FakeNode {
   const listeners = new Map<string, () => void>()
   const node: FakeNode = {
     attributes: new Map(),
+    clicks: 0,
     innerHTML: '',
     parentElement: null,
+    title: '',
     setAttribute(name, value) { node.attributes.set(name, value) },
     getAttribute: name => node.attributes.get(name) ?? null,
     addEventListener(type, handler) { listeners.set(type, handler) },
-    click() { listeners.get('click')?.() },
+    click() {
+      node.clicks += 1
+      listeners.get('click')?.()
+    },
     closest: () => ({ getAttribute: (name: string) => name === 'data-sidebar-right-session' ? 'session-1' : null }),
   }
   return node
 }
 
-function stubDom() {
+function stubDom(options: { collapsed?: boolean, fullSidebar?: boolean } = {}) {
+  const collapsed = options.collapsed ?? false
   const container: FakeContainer = {
     children: [],
     insertBefore(node, before) {
@@ -56,14 +64,21 @@ function stubDom() {
   mode.setAttribute('data-sidebar-right-mode', 'fullscreen')
   mode.parentElement = container
   container.children.push(mode)
+  const expand = createNode()
+  expand.setAttribute('data-sidebar-right-expand', '')
 
   vi.stubGlobal('document', {
     body: {},
-    documentElement: { setAttribute: vi.fn() },
+    documentElement: {
+      setAttribute: vi.fn(),
+      hasAttribute: () => options.fullSidebar ?? false,
+    },
     createElement: () => createNode(),
     querySelector: (selector: string) => {
       if (selector === '[data-sidebar-right-mode]')
-        return mode
+        return collapsed ? null : mode
+      if (selector === '[data-sidebar-right-expand]')
+        return collapsed ? expand : null
       if (selector === '[data-dsh-tauri-open-window]')
         return container.children.find(node => node.attributes.has('data-dsh-tauri-open-window')) ?? null
       return null
@@ -73,7 +88,7 @@ function stubDom() {
     observe() {}
     disconnect() {}
   })
-  return { container, mode }
+  return { container, expand, mode }
 }
 
 function runFeature(): () => void {
@@ -99,6 +114,7 @@ describe('sidebarFullwindowFeature', () => {
     expect(container.children[1]).toBe(mode)
     expect(button.attributes.has('data-dsh-tauri-open-window')).toBe(true)
     expect(button.getAttribute('aria-label')).toBe('在新窗口全屏打开')
+    expect(button.title).toBe('在新窗口全屏打开')
     expect(button.innerHTML).toContain('<svg')
     dispose()
   })
@@ -122,5 +138,13 @@ describe('sidebarFullwindowFeature', () => {
     runFeature()
 
     expect(container.children).toHaveLength(2)
+  })
+
+  it('全屏形态窗口里右栏被收起时自动展开', () => {
+    const { expand } = stubDom({ collapsed: true, fullSidebar: true })
+    const dispose = runFeature()
+
+    expect(expand.clicks).toBe(1)
+    dispose()
   })
 })

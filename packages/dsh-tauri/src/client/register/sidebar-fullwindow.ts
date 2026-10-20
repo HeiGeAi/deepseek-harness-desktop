@@ -25,11 +25,19 @@ const FULLSCREEN_SELECTOR = '[data-sidebar-right-mode]'
 /** 折叠态轨上的展开按钮。 */
 const EXPAND_SELECTOR = '[data-sidebar-right-expand]'
 
+/** 展开态 chrome 上的收起按钮。 */
+const TOGGLE_SELECTOR = '[data-sidebar-right-toggle]'
+
 /** 右栏根节点：携带本栏所属会话 id。 */
 const SESSION_SELECTOR = '[data-sidebar-right-session]'
 
 /** 全屏形态窗口的根标记：隐藏全屏按钮，也是壳层判定窗口形态的依据。 */
 export const FULL_SIDEBAR_ATTRIBUTE = 'data-dsh-tauri-full-sidebar'
+
+/** 就位中：整页先藏起来，避免先看到普通布局再跳成全屏。 */
+const FULL_SIDEBAR_PRESENTING = 'presenting'
+
+const FULL_SIDEBAR_READY = 'ready'
 
 /** 建窗载荷里的窗口形态（与 `src-tauri/src/desktop/window.rs` 逐字一致）。 */
 export const PRESENTATION_FULL_SIDEBAR = 'full-sidebar'
@@ -72,10 +80,35 @@ function place(): void {
   const button = document.createElement('button')
   button.type = 'button'
   button.setAttribute(OPEN_WINDOW_ATTRIBUTE, '')
-  button.setAttribute('aria-label', buttonLabel(mode))
+  const label = buttonLabel(mode)
+  button.setAttribute('aria-label', label)
+  button.title = label
   button.innerHTML = ICON
   button.addEventListener('click', () => openWindow(button))
   parent.insertBefore(button, mode)
+}
+
+/**
+ * 提前打上「就位中」标记：样式表已经把整页藏起来，等全屏形态真正到位再放出来。
+ * 由 navigation 在会话打开前调用，否则首帧会先闪一下普通布局。
+ */
+export function markFullSidebarPresenting(): void {
+  document.documentElement.setAttribute(FULL_SIDEBAR_ATTRIBUTE, FULL_SIDEBAR_PRESENTING)
+}
+
+let lastExpandAt = 0
+
+/** 全屏形态窗口里官方「tab 全关就收起右栏」的联动不适用，收起后立刻展开回来。 */
+function keepExpanded(): void {
+  if (!document.documentElement.hasAttribute(FULL_SIDEBAR_ATTRIBUTE))
+    return
+  if (document.querySelector(FULLSCREEN_SELECTOR) !== null)
+    return
+  const now = Date.now()
+  if (now - lastExpandAt < PRESENT_POLL_MS)
+    return
+  lastExpandAt = now
+  document.querySelector<HTMLElement>(EXPAND_SELECTOR)?.click()
 }
 
 /**
@@ -85,12 +118,14 @@ function place(): void {
  * @param controller - 生命周期控制器；窗口关闭或插件重载时停掉轮询。
  */
 export function presentFullSidebar(controller: RegisterController): void {
-  document.documentElement.setAttribute(FULL_SIDEBAR_ATTRIBUTE, '')
+  markFullSidebarPresenting()
+  const settle = () => document.documentElement.setAttribute(FULL_SIDEBAR_ATTRIBUTE, FULL_SIDEBAR_READY)
   let ticks = 0
   const cancel = controller.interval(() => {
     ticks += 1
     if (ticks > PRESENT_MAX_TICKS) {
       cancel()
+      settle()
       return
     }
     const mode = document.querySelector<HTMLElement>(FULLSCREEN_SELECTOR)
@@ -103,6 +138,7 @@ export function presentFullSidebar(controller: RegisterController): void {
       return
     }
     cancel()
+    settle()
   }, PRESENT_POLL_MS)
 }
 
@@ -127,7 +163,8 @@ export const sidebarFullwindowFeature = defineRegister((controller) => {
       }),
       c(`[${OPEN_WINDOW_ATTRIBUTE}]:hover`, { background: 'var(--dsw-alias-interactive-bg-hover)' }),
       c(`[${OPEN_WINDOW_ATTRIBUTE}] svg`, { width: '15px', height: '15px' }),
-      c(`[${FULL_SIDEBAR_ATTRIBUTE}] ${FULLSCREEN_SELECTOR}`, { display: 'none !important' }),
+      c(`[${FULL_SIDEBAR_ATTRIBUTE}] ${FULLSCREEN_SELECTOR}, [${FULL_SIDEBAR_ATTRIBUTE}] ${TOGGLE_SELECTOR}, [${FULL_SIDEBAR_ATTRIBUTE}] [${OPEN_WINDOW_ATTRIBUTE}]`, { display: 'none !important' }),
+      c(`[${FULL_SIDEBAR_ATTRIBUTE}="${FULL_SIDEBAR_PRESENTING}"] body`, { visibility: 'hidden' }),
     ])
     // 必须自报归属：宿主的客户端模块系统会把没有 `data-plugin` 的 <style> 认领给下一个
     // 物化的插件，并在它重载时一并删除（issue #655）。
@@ -141,6 +178,7 @@ export const sidebarFullwindowFeature = defineRegister((controller) => {
   const inject = () => {
     try {
       place()
+      keepExpanded()
     }
     catch (error) {
       reportPluginError(error)

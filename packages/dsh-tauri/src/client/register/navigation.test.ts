@@ -215,7 +215,7 @@ describe('navigationFeature', () => {
     let mode: { getAttribute: (name: string) => string | null, click: () => void } | undefined
     const expand = { click: () => clicked.push('expand') }
     vi.stubGlobal('document', {
-      documentElement: { setAttribute: (name: string) => marked.push(name) },
+      documentElement: { setAttribute: (name: string, value: string) => marked.push(`${name}=${value}`) },
       querySelector: (selector: string) => {
         if (selector === '[data-sidebar-right-mode]')
           return mode ?? null
@@ -233,7 +233,7 @@ describe('navigationFeature', () => {
     ids = ['target']
     await vi.advanceTimersByTimeAsync(500)
     expect(openSession).toHaveBeenCalledExactlyOnceWith('target')
-    expect(marked).toEqual(['data-dsh-tauri-full-sidebar'])
+    expect(marked[0]).toBe('data-dsh-tauri-full-sidebar=presenting')
 
     await vi.advanceTimersByTimeAsync(250)
     expect(clicked).toEqual(['expand'])
@@ -248,6 +248,7 @@ describe('navigationFeature', () => {
     }
     await vi.advanceTimersByTimeAsync(500)
     expect(clicked).toEqual(['expand', 'mode'])
+    expect(marked.at(-1)).toBe('data-dsh-tauri-full-sidebar=ready')
 
     await vi.advanceTimersByTimeAsync(31_000)
     expect(clicked).toEqual(['expand', 'mode'])

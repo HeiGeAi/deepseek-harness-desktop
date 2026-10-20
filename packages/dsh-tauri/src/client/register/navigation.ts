@@ -3,7 +3,7 @@ import type { ClientAdapter, RegisterController } from './index'
 import { listenParent } from '../service/listen-parent'
 import { reportPluginError } from '../utils/error'
 import { defineRegister } from './index'
-import { PRESENTATION_FULL_SIDEBAR, presentFullSidebar } from './sidebar-fullwindow'
+import { markFullSidebarPresenting, PRESENTATION_FULL_SIDEBAR, presentFullSidebar } from './sidebar-fullwindow'
 
 /** 宿主 → iframe：新建会话命令。 */
 const CMD_NEW_SESSION = 'dsh://session:new'
@@ -115,6 +115,8 @@ export const navigationFeature = defineRegister<ClientContext>((controller, _ctx
   }, [CMD_NEW_SESSION, CMD_ADD_WORKSPACE]))
 
   const { sessionId, presentation } = takeInjectedNavigation()
+  if (sessionId !== undefined && presentation === PRESENTATION_FULL_SIDEBAR)
+    markFullSidebarPresenting()
   if (sessionId !== undefined)
     consumeInjectedSession(controller, adapter, sessionId, presentation)
 })
