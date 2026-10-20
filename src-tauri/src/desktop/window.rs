@@ -142,6 +142,14 @@ pub async fn create_app_window(
     session_id: Option<String>,
     presentation: Option<String>,
 ) -> Result<(), String> {
+    if let Some(value) = presentation.as_deref() {
+        if value != PRESENTATION_FULL_SIDEBAR {
+            return Err("WINDOW_CREATE_FAILED: unsupported presentation".into());
+        }
+        if session_id.is_none() {
+            return Err("WINDOW_CREATE_FAILED: presentation requires sessionId".into());
+        }
+    }
     let navigation = session_id
         .as_deref()
         .map(|session_id| session_navigation_script(session_id, presentation.as_deref()))

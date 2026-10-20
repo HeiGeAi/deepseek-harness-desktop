@@ -142,31 +142,52 @@ function isFullSidebarDocument(): boolean {
   return document.documentElement.hasAttribute(FULL_SIDEBAR_ATTRIBUTE)
 }
 
-let tooltip: HTMLDivElement | null = null
-let tooltipTimer = 0
+interface Tooltip {
+  attach: (anchor: HTMLElement, text: string) => void
+  hide: () => void
+  dispose: () => void
+}
 
 /**
  * 官方 chrome 按钮的悬停提示：自带的气泡样式，而不是原生 `title`。
- * @param anchor - 触发悬停的按钮。
- * @param text - 提示文案。
+ * 状态留在特性闭包里，插件卸载时一起收走。
+ * @returns 提示气泡的挂载、隐藏与销毁。
  */
-function showTooltip(anchor: HTMLElement, text: string): void {
-  tooltip ??= document.createElement('div')
-  tooltip.setAttribute('role', 'tooltip')
-  tooltip.style.cssText = TOOLTIP_STYLE
-  tooltip.textContent = text
-  document.body.append(tooltip)
-  const rect = anchor.getBoundingClientRect()
-  tooltip.style.display = 'block'
-  const width = tooltip.getBoundingClientRect().width
-  tooltip.style.top = `${rect.bottom + TOOLTIP_GAP}px`
-  tooltip.style.left = `${Math.min(Math.max(rect.left + rect.width / 2 - width / 2, 4), window.innerWidth - width - 4)}px`
-}
-
-function hideTooltip(): void {
-  window.clearTimeout(tooltipTimer)
-  if (tooltip !== null)
-    tooltip.style.display = 'none'
+function createTooltip(): Tooltip {
+  let bubble: HTMLDivElement | null = null
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const hide = () => {
+    clearTimeout(timer)
+    if (bubble !== null)
+      bubble.style.display = 'none'
+  }
+  const show = (anchor: HTMLElement, text: string) => {
+    bubble ??= document.createElement('div')
+    bubble.setAttribute('role', 'tooltip')
+    bubble.style.cssText = TOOLTIP_STYLE
+    bubble.textContent = text
+    document.body.append(bubble)
+    const rect = anchor.getBoundingClientRect()
+    bubble.style.display = 'block'
+    const width = bubble.getBoundingClientRect().width
+    bubble.style.top = `${rect.bottom + TOOLTIP_GAP}px`
+    bubble.style.left = `${Math.min(Math.max(rect.left + rect.width / 2 - width / 2, 4), window.innerWidth - width - 4)}px`
+  }
+  return {
+    attach(anchor, text) {
+      anchor.addEventListener('pointerenter', () => {
+        clearTimeout(timer)
+        timer = setTimeout(show, TOOLTIP_DELAY_MS, anchor, text)
+      })
+      anchor.addEventListener('pointerleave', hide)
+    },
+    hide,
+    dispose() {
+      hide()
+      bubble?.remove()
+      bubble = null
+    },
+  }
 }
 
 /** 用行内样式藏控件：插件样式表可能被宿主模块系统回收，行内样式不会。 */
@@ -190,7 +211,7 @@ function guardLastTab(): void {
 }
 
 /** 把按钮插到全屏按钮左侧；右栏重渲染丢掉按钮时由观察者再次调用。 */
-function place(): void {
+function place(tooltip: Tooltip): void {
   const mode = document.querySelector<HTMLElement>(FULLSCREEN_SELECTOR)
   const parent = mode?.parentElement
   if (mode == null || parent == null)
@@ -205,12 +226,11 @@ function place(): void {
     // 直接沿用官方按钮的类名：尺寸与 hover 完全跟着官方样式表走。
     created.className = mode.className
     created.innerHTML = ICON
-    created.addEventListener('click', () => openWindow(created))
-    created.addEventListener('pointerenter', () => {
-      window.clearTimeout(tooltipTimer)
-      tooltipTimer = window.setTimeout(showTooltip, TOOLTIP_DELAY_MS, created, label)
+    created.addEventListener('click', () => {
+      tooltip.hide()
+      openWindow(created)
     })
-    created.addEventListener('pointerleave', hideTooltip)
+    tooltip.attach(created, label)
     parent.insertBefore(created, mode)
     button = created
   }
@@ -250,9 +270,10 @@ export function presentFullSidebar(controller: RegisterController): void {
     }
     const mode = document.querySelector<HTMLElement>(FULLSCREEN_SELECTOR)
     if (mode == null) {
-      if (!expandClicked) {
+      const expand = document.querySelector<HTMLElement>(EXPAND_SELECTOR)
+      if (!expandClicked && expand !== null) {
         expandClicked = true
-        document.querySelector<HTMLElement>(EXPAND_SELECTOR)?.click()
+        expand.click()
       }
       return
     }
@@ -276,9 +297,11 @@ function blockLastTabMenu(event: MouseEvent): void {
 }
 
 export const sidebarFullwindowFeature = defineRegister((controller) => {
+  const tooltip = createTooltip()
+  controller.add(() => tooltip.dispose())
   const inject = () => {
     try {
-      place()
+      place(tooltip)
       guardLastTab()
     }
     catch (error) {

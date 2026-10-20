@@ -281,4 +281,32 @@ describe('navigationFeature', () => {
     expect(clicked).toEqual(['expand', 'mode'])
     dispose()
   })
+
+  it('会话被归档后关掉全屏窗口，而不是让它退回会话列表', () => {
+    const host = stubHost()
+    host.window[NAVIGATION_GLOBAL] = { sessionId: 'target', presentation: 'full-sidebar' }
+    vi.stubGlobal('document', {
+      documentElement: { hasAttribute: () => false, setAttribute: () => {} },
+    })
+    let archived: string[] = []
+    let notify = () => {}
+    const dispose = navigationFeature.call(ctxWithServices({
+      sessions: stubSessions(() => ['target']),
+      workspaces: { list: { getSnapshot: () => ({ archivedSessionIds: archived }), subscribe: (listener: () => void) => {
+        notify = listener
+        return () => {}
+      } } },
+    }))
+
+    const closes = () => host.post.mock.calls.filter(call => (call[0] as { type?: string }).type === 'dsh://window:close')
+    expect(closes()).toHaveLength(0)
+
+    archived = ['target']
+    notify()
+    expect(closes()).toHaveLength(1)
+
+    notify()
+    expect(closes()).toHaveLength(1)
+    dispose()
+  })
 })

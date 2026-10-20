@@ -1,5 +1,6 @@
 import type { ClientContext, ParentMessage } from '../types'
 import type { ClientAdapter, RegisterController } from './index'
+import { invokeParent } from '../service/invoke-parent'
 import { listenParent } from '../service/listen-parent'
 import { reportPluginError } from '../utils/error'
 import { defineRegister } from './index'
@@ -101,6 +102,25 @@ function consumeInjectedSession(controller: RegisterController, adapter: ClientA
   open()
 }
 
+/** 会话被归档：本窗口看的那条会话没了，直接关窗，而不是被官方收回右栏后掉回会话列表。 */
+function closeWhenArchived(controller: RegisterController, adapter: ClientAdapter, sessionId: string): void {
+  const list = adapter.workspaces.list
+  if (list === undefined)
+    return
+  let closing = false
+  const check = () => {
+    if (closing)
+      return
+    const snapshot = list.getSnapshot() as { archivedSessionIds?: readonly unknown[] } | undefined
+    if (snapshot?.archivedSessionIds?.includes(sessionId) !== true)
+      return
+    closing = true
+    invokeParent({ type: 'dsh://window:close' })
+  }
+  controller.add(list.subscribe(check))
+  check()
+}
+
 export const navigationFeature = defineRegister<ClientContext>((controller, _ctx, adapter) => {
   controller.add(listenParent<ParentMessage>((data) => {
     if (data.type === CMD_NEW_SESSION) {
@@ -115,8 +135,10 @@ export const navigationFeature = defineRegister<ClientContext>((controller, _ctx
   const { sessionId, presentation, consumed } = takeInjectedNavigation()
   if (presentation === PRESENTATION_FULL_SIDEBAR) {
     // 先把本窗口的右栏布局从共享存储里隔离出来，否则两个窗口会互相覆盖形态。
-    if (sessionId !== undefined)
+    if (sessionId !== undefined) {
       isolateSidebarLayout(sessionId)
+      closeWhenArchived(controller, adapter, sessionId)
+    }
     // 形态先就位：它自带看门狗，会话没打开（例如主窗口中途关闭）也会自己揭开，不会留白屏。
     presentFullSidebar(controller)
   }

@@ -115,6 +115,9 @@ export function Webview() {
     else if (data.type === 'dsh://full-sidebar:ready') {
       setFullSidebarRevealed(true)
     }
+    else if (data.type === 'dsh://window:close') {
+      void getCurrentWindow().close()
+    }
     else if (data.type === 'dsh://plugin-boot:ready') {
       const pending = pendingSettingsTabRef.current
       if (pending !== null) {
@@ -181,7 +184,7 @@ export function Webview() {
       />
       <div className="relative flex min-h-0 flex-1">
         {renderContent()}
-        <If cond={fullSidebar && !fullSidebarRevealed}>
+        <If cond={fullSidebar && !fullSidebarRevealed && status === 'ready'}>
           <div className="absolute inset-0 z-10" data-testid="dsh-full-sidebar-cover" style={{ background: dshStyle.sidebar?.background }} />
         </If>
       </div>
