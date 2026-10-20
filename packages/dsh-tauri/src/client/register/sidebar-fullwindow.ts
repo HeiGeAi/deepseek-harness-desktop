@@ -10,6 +10,7 @@ import type { RegisterController } from './index'
  * 用 DOM 注入而不是 React 组件：chrome 由官方包渲染且不接受外部插槽，`data-sidebar-right-*`
  * 稳定属性比生成的 CSS module 类名可靠。
  */
+import { ARCHIVE_STREAM_PATH } from '../../shared/constants'
 import { invoke } from '../service/invoke'
 import { invokeParent } from '../service/invoke-parent'
 import { reportPluginError } from '../utils/error'
@@ -251,6 +252,49 @@ function place(tooltip: Tooltip): void {
  * 轮询自带看门狗，会话始终没打开也会自己揭开，不留白屏。
  * @param controller - 生命周期控制器；窗口关闭或插件重载时停掉轮询。
  */
+/**
+ * 本窗口的会话被归档即关窗：官方会收回那条会话的右栏，窗口会掉回会话列表，
+ * 与其留一个空壳不如随会话消失。
+ * @param controller - 生命周期控制器（订阅随插件卸载关闭）。
+ * @param sessionId - 本窗口承载的会话 id。
+ */
+export function closeWhenArchived(controller: RegisterController, sessionId: string): void {
+  if (typeof EventSource === 'undefined') {
+    console.warn('[dsh-tauri] archive-watch: no EventSource')
+    return
+  }
+  const source = new EventSource(ARCHIVE_STREAM_PATH)
+  console.warn('[dsh-tauri] archive-watch: subscribe', { sessionId, url: ARCHIVE_STREAM_PATH })
+  let closing = false
+  controller.add(() => source.close())
+  source.addEventListener('open', () => console.warn('[dsh-tauri] archive-watch: open'))
+  source.addEventListener('error', () => console.warn('[dsh-tauri] archive-watch: error', { readyState: source.readyState }))
+  source.addEventListener('message', (event) => {
+    if (closing)
+      return
+    const archived = archivedSessionIds(event.data)
+    if (archived?.includes(sessionId) !== true)
+      return
+    closing = true
+    source.close()
+    console.warn('[dsh-tauri] archive-watch: closing archived window', { sessionId })
+    invokeParent({ type: 'dsh://window:close' })
+  })
+}
+
+/** 解析宿主帧 `{"archivedSessionIds":[…]}`；格式不对当作没收到。 */
+function archivedSessionIds(data: unknown): string[] | undefined {
+  if (typeof data !== 'string')
+    return undefined
+  try {
+    const payload = JSON.parse(data) as { archivedSessionIds?: unknown }
+    return Array.isArray(payload.archivedSessionIds) ? payload.archivedSessionIds.map(String) : undefined
+  }
+  catch {
+    return undefined
+  }
+}
+
 export function presentFullSidebar(controller: RegisterController): void {
   document.documentElement.setAttribute(FULL_SIDEBAR_ATTRIBUTE, FULL_SIDEBAR_PRESENTING)
   document.body?.style.setProperty('visibility', 'hidden', 'important')
@@ -262,6 +306,7 @@ export function presentFullSidebar(controller: RegisterController): void {
       cancel()
       document.documentElement.setAttribute(FULL_SIDEBAR_ATTRIBUTE, FULL_SIDEBAR_READY)
       document.body?.style.removeProperty('visibility')
+      console.warn('[dsh-tauri] present: ready', { ticks })
       invokeParent({ type: FULL_SIDEBAR_READY_MESSAGE })
     }
     if (ticks > PRESENT_MAX_TICKS) {

@@ -288,25 +288,52 @@ describe('navigationFeature', () => {
     vi.stubGlobal('document', {
       documentElement: { hasAttribute: () => false, setAttribute: () => {} },
     })
-    let archived: string[] = []
-    let notify = () => {}
+    const sources: FakeEventSource[] = []
+    vi.stubGlobal('EventSource', class extends FakeEventSource {
+      constructor(url: string) {
+        super(url)
+        sources.push(this)
+      }
+    })
     const dispose = navigationFeature.call(ctxWithServices({
       sessions: stubSessions(() => ['target']),
-      workspaces: { list: { getSnapshot: () => ({ archivedSessionIds: archived }), subscribe: (listener: () => void) => {
-        notify = listener
-        return () => {}
-      } } },
     }))
 
     const closes = () => host.post.mock.calls.filter(call => (call[0] as { type?: string }).type === 'dsh://window:close')
+    expect(sources).toHaveLength(1)
+    expect(sources[0]?.url).toBe('/api/tauri/desktop/archive/events')
     expect(closes()).toHaveLength(0)
 
-    archived = ['target']
-    notify()
-    expect(closes()).toHaveLength(1)
+    sources[0]?.emit(JSON.stringify({ archivedSessionIds: ['other'] }))
+    expect(closes()).toHaveLength(0)
 
-    notify()
+    sources[0]?.emit(JSON.stringify({ archivedSessionIds: ['other', 'target'] }))
+    expect(closes()).toHaveLength(1)
+    expect(sources[0]?.closed).toBe(true)
+
+    sources[0]?.emit(JSON.stringify({ archivedSessionIds: ['target'] }))
     expect(closes()).toHaveLength(1)
     dispose()
   })
 })
+
+/** 最小 `EventSource` 替身：只实现窗口侧用到的接口，测试里手动投递宿主帧。 */
+class FakeEventSource {
+  closed = false
+  private readonly listeners: Array<(event: { data: string }) => void> = []
+
+  constructor(readonly url: string) {}
+
+  addEventListener(_type: string, listener: (event: { data: string }) => void): void {
+    this.listeners.push(listener)
+  }
+
+  close(): void {
+    this.closed = true
+  }
+
+  emit(data: string): void {
+    for (const listener of this.listeners)
+      listener({ data })
+  }
+}

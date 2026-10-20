@@ -150,6 +150,10 @@ pub async fn create_app_window(
             return Err("WINDOW_CREATE_FAILED: presentation requires sessionId".into());
         }
     }
+    log::info!(
+        "[window] create_app_window from {}: session={session_id:?} presentation={presentation:?}",
+        window.label()
+    );
     let navigation = session_id
         .as_deref()
         .map(|session_id| session_navigation_script(session_id, presentation.as_deref()))
