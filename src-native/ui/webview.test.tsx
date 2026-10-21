@@ -11,6 +11,7 @@ const native = vi.hoisted(() => ({
   platform: { OS: 'android' },
   appListeners: new Set<() => void>(),
   backListeners: new Set<() => boolean>(),
+  keyboardListeners: new Map<string, (payload: { endCoordinates: { height: number } }) => void>(),
   navigation: { isFocused: vi.fn<() => boolean>() },
   randomUUID: vi.fn<() => string>(),
   openURL: vi.fn<(url: string) => Promise<void>>(),
@@ -43,6 +44,14 @@ vi.mock('react-native', () => ({
       native.backListeners.add(listener)
       return { remove: () => {
         native.backListeners.delete(listener)
+      } }
+    },
+  },
+  Keyboard: {
+    addListener: (event: string, listener: (payload: { endCoordinates: { height: number } }) => void) => {
+      native.keyboardListeners.set(event, listener)
+      return { remove: () => {
+        native.keyboardListeners.delete(event)
       } }
     },
   },
@@ -290,6 +299,7 @@ beforeEach(async () => {
   native.platform.OS = 'android'
   native.appListeners.clear()
   native.backListeners.clear()
+  native.keyboardListeners.clear()
   native.navigation.isFocused.mockReturnValue(true)
   let sequence = 0
   native.randomUUID.mockImplementation(() => `webview-uuid-${++sequence}`)
@@ -316,6 +326,7 @@ afterEach(async () => {
   await vi.advanceTimersByTimeAsync(0)
   expect(native.appListeners.size).toBe(0)
   expect(native.backListeners.size).toBe(0)
+  expect(native.keyboardListeners.size).toBe(0)
   expect(vi.getTimerCount()).toBe(0)
   vi.restoreAllMocks()
   vi.resetAllMocks()
@@ -413,6 +424,7 @@ describe('rendered Bridge WebView document lifecycle', () => {
     await mount()
     const edges = platform === 'ios' ? ['top'] : ['top', 'bottom']
     expect(root().find(node => String(node.type) === 'SafeAreaView').props.edges).toEqual(edges)
+    expect(native.keyboardListeners.size).toBe(platform === 'ios' ? 2 : 0)
     const page = createPage()
     const style = page.styles.get('dsh-bridge-tap-highlight')
     expect(style?.textContent).toContain('--dsh-mobile-safe-area-inset-top: 0px;')
@@ -432,6 +444,21 @@ describe('rendered Bridge WebView document lifecycle', () => {
     expect(page.styles.size).toBe(1)
     expect(page.styles.get('dsh-bridge-tap-highlight')).toBe(style)
     expect(Reflect.get(page.window, '__dshBridgeReceive')).toBe(receive)
+  })
+
+  it('reports the ios keyboard height into the loaded page and clears it when the keyboard hides', async () => {
+    native.platform.OS = 'ios'
+    await mount()
+    const view = await viewRef()
+    view.injectJavaScript.mockClear()
+
+    native.keyboardListeners.get('keyboardWillShow')!({ endCoordinates: { height: 301 } })
+    native.keyboardListeners.get('keyboardWillHide')!({ endCoordinates: { height: 0 } })
+
+    expect(view.injectJavaScript.mock.calls.map(([script]) => script)).toEqual([
+      expect.stringContaining('"detail":{"height":301}'),
+      expect.stringContaining('"detail":{"height":0}'),
+    ])
   })
 
   it('never records Android native finish followed by network error as a successful connection', async () => {
