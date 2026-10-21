@@ -11,7 +11,8 @@ const native = vi.hoisted(() => ({
   platform: { OS: 'android' },
   appListeners: new Set<() => void>(),
   backListeners: new Set<() => boolean>(),
-  keyboardListeners: new Map<string, (payload: { endCoordinates: { height: number } }) => void>(),
+  keyboardListeners: new Map<string, (payload: { endCoordinates: { screenY: number } }) => void>(),
+  windowMetrics: { width: 1180, height: 820 },
   navigation: { isFocused: vi.fn<() => boolean>() },
   randomUUID: vi.fn<() => string>(),
   openURL: vi.fn<(url: string) => Promise<void>>(),
@@ -47,8 +48,11 @@ vi.mock('react-native', () => ({
       } }
     },
   },
+  Dimensions: {
+    get: () => ({ ...native.windowMetrics }),
+  },
   Keyboard: {
-    addListener: (event: string, listener: (payload: { endCoordinates: { height: number } }) => void) => {
+    addListener: (event: string, listener: (payload: { endCoordinates: { screenY: number } }) => void) => {
       native.keyboardListeners.set(event, listener)
       return { remove: () => {
         native.keyboardListeners.delete(event)
@@ -424,7 +428,7 @@ describe('rendered Bridge WebView document lifecycle', () => {
     await mount()
     const edges = platform === 'ios' ? ['top'] : ['top', 'bottom']
     expect(root().find(node => String(node.type) === 'SafeAreaView').props.edges).toEqual(edges)
-    expect(native.keyboardListeners.size).toBe(platform === 'ios' ? 2 : 0)
+    expect(native.keyboardListeners.size).toBe(platform === 'ios' ? 1 : 0)
     const page = createPage()
     const style = page.styles.get('dsh-bridge-tap-highlight')
     expect(style?.textContent).toContain('--dsh-mobile-safe-area-inset-top: 0px;')
@@ -452,8 +456,8 @@ describe('rendered Bridge WebView document lifecycle', () => {
     const view = await viewRef()
     view.injectJavaScript.mockClear()
 
-    native.keyboardListeners.get('keyboardWillShow')!({ endCoordinates: { height: 301 } })
-    native.keyboardListeners.get('keyboardWillHide')!({ endCoordinates: { height: 0 } })
+    native.keyboardListeners.get('keyboardWillChangeFrame')!({ endCoordinates: { screenY: native.windowMetrics.height - 301 } })
+    native.keyboardListeners.get('keyboardWillChangeFrame')!({ endCoordinates: { screenY: native.windowMetrics.height } })
 
     expect(view.injectJavaScript.mock.calls.map(([script]) => script)).toEqual([
       expect.stringContaining('"detail":{"height":301}'),
