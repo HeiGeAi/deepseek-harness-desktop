@@ -159,13 +159,15 @@ describe('pet cursor input lifecycle', () => {
     expect(requests()).toEqual([true])
   })
 
-  it('retries the window position read on the next sample after a failed move refresh', async () => {
+  it('retries the window position read on the next sample after a failed resize refresh', async () => {
     renderHook(() => useOmitIgnoreCursorEvents({ current: element }))
     await flush()
     await emit('device-mouse-move', { x: 500, y: 500 })
     native.position.mockRejectedValueOnce(new Error('position failed'))
-    await emit('moved', {})
+    await emit('resized', {})
+    await flush()
     await emit('device-mouse-move', { x: 500, y: 500 })
+    await flush()
     expect(native.position).toHaveBeenCalledTimes(3)
     expect(requests()).toEqual([true])
   })
@@ -390,7 +392,9 @@ describe('pet cursor input lifecycle', () => {
 
     native.scaleFactor.mockResolvedValue(1)
     native.position.mockResolvedValue({ x: -400, y: 100 })
-    await emit('moved', {})
+    await emit('moved', { x: -800, y: 200 })
+    await flush()
+    expect(native.position).toHaveBeenCalledTimes(2)
     await emit('device-mouse-move', { x: -380, y: 120 })
     expect(requests()).toEqual([true, false, true, false])
   })

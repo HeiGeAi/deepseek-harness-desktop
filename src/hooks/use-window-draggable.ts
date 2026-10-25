@@ -283,7 +283,7 @@ export function useWindowDraggable(options: UseWindowDraggableOptions): UseWindo
     setDirection(undefined)
     if (gesture?.engaged === true) {
       void getCurrentWindow()
-        .setPosition(new PhysicalPosition(Math.round(gesture.x), Math.round(gesture.y)))
+        .setPosition(nativeScreenPosition(Math.round(gesture.x), Math.round(gesture.y)))
         .then(() => invoke('persist_pet_window_position'))
         .catch(() => {})
     }

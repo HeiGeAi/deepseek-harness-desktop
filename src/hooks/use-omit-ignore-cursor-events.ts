@@ -37,7 +37,8 @@ export function useOmitIgnoreCursorEvents(elementRef: RefObject<HTMLElement | nu
     if (appWindow.label !== 'pet')
       return
     // Linux 走输入形状而非整窗穿透：XWayland 下穿透后收不到全局鼠标流，桌宠再也点不到（issue #649）。
-    const inputRegion = type() === 'linux'
+    const platform = type()
+    const inputRegion = platform === 'linux'
     let appliedRegion: PetInputRect | undefined
     let regionFrame: number | undefined
     let disposed = false
@@ -171,6 +172,10 @@ export function useOmitIgnoreCursorEvents(elementRef: RefObject<HTMLElement | nu
 
     const subscriptions = [
       appWindow.onMoved(({ payload }) => {
+        if (platform === 'macos') {
+          void refreshWindowPosition()
+          return
+        }
         geometryRevision++
         windowPosition = payload
         refreshFromState()
