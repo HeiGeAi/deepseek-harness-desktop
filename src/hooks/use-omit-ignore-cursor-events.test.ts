@@ -146,6 +146,17 @@ describe('pet cursor input lifecycle', () => {
     expect(requests()).toEqual([true])
   })
 
+  it('retries the window position read on the next sample after a failed move refresh', async () => {
+    renderHook(() => useOmitIgnoreCursorEvents({ current: element }))
+    await flush()
+    await emit('device-mouse-move', { x: 500, y: 500 })
+    native.position.mockRejectedValueOnce(new Error('position failed'))
+    await emit('moved', {})
+    await emit('device-mouse-move', { x: 500, y: 500 })
+    expect(native.position).toHaveBeenCalledTimes(3)
+    expect(requests()).toEqual([true])
+  })
+
   it('retests a stationary cursor when the window moves away and back', async () => {
     renderHook(() => useOmitIgnoreCursorEvents({ current: element }))
     await flush()

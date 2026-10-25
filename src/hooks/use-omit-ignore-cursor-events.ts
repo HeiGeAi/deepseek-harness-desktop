@@ -112,6 +112,8 @@ export function useOmitIgnoreCursorEvents(elementRef: RefObject<HTMLElement | nu
         }
       }
       catch (error) {
+        if (!disposed && revision === geometryRevision)
+          windowPosition = undefined
         if (!disposed)
           console.warn('[pet] PET_INPUT_POSITION_FAILED:', error)
       }
