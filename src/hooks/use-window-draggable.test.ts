@@ -295,6 +295,7 @@ describe('useWindowDraggable', () => {
 
     await startDrag(result.current, 12)
     release(result.current)
+    await settlePromises()
 
     expect(invokeMock).toHaveBeenCalledWith('persist_pet_window_position')
     // 不再走整窗夹取：宠物四周的透明留白会被算进去，贴边松手时把宠物推开一段。
@@ -380,6 +381,7 @@ describe('useWindowDraggable', () => {
     })
 
     expect(result.current.dragging).toBe(false)
+    await settlePromises()
     expect(invokeMock).toHaveBeenCalledWith('persist_pet_window_position')
   })
 
@@ -440,5 +442,91 @@ describe('useWindowDraggable', () => {
     renderHook(() => useDraggable())
 
     expect(invokeMock).not.toHaveBeenCalledWith('start_pet_mouse_stream')
+  })
+
+  it('下发按 ~16ms 节流：亚 16ms 帧只积分不下发，下发数远少于帧数', async () => {
+    const rafTimestamp = { current: 0 }
+    const callbacks: Array<(ts: number) => void> = []
+    vi.stubGlobal('requestAnimationFrame', (cb: (ts: number) => void) => {
+      callbacks.push(cb)
+      return callbacks.length
+    })
+    vi.stubGlobal('cancelAnimationFrame', () => {})
+
+    const { result } = renderHook(() => useDraggable())
+    await startDrag(result.current, 40)
+    expect(result.current.dragging).toBe(true)
+    windowMock.setPosition.mockClear()
+
+    act(() => {
+      for (let index = 0; index < 30; index += 1) {
+        rafTimestamp.current += 3.34
+        const pending = callbacks.splice(0)
+        for (const cb of pending)
+          cb(rafTimestamp.current)
+      }
+    })
+
+    expect(windowMock.setPosition.mock.calls.length).toBeLessThanOrEqual(7)
+    expect(windowMock.setPosition.mock.calls.length).toBeGreaterThanOrEqual(2)
+    vi.unstubAllGlobals()
+  })
+
+  it('松手冲刷原点位置并等待窗口移动完成后才落盘', async () => {
+    const { result } = renderHook(() => useDraggable({ clampPosition: () => ({ x: 0, y: 0 }) }))
+    await startDrag(result.current, 40)
+    frames(2)
+    let resolve!: () => void
+    windowMock.setPosition.mockImplementationOnce(() => new Promise<void>((done) => {
+      resolve = done
+    }))
+    windowMock.setPosition.mockClear()
+    release(result.current)
+
+    expect(windowMock.setPosition).toHaveBeenCalledExactlyOnceWith({ x: 0, y: 0 })
+    expect(invokeMock).not.toHaveBeenCalledWith('persist_pet_window_position')
+    await act(async () => {
+      resolve()
+    })
+    expect(invokeMock).toHaveBeenCalledExactlyOnceWith('persist_pet_window_position')
+  })
+
+  it('末帧窗口移动失败时不保存未送达的位置', async () => {
+    const { result } = renderHook(() => useDraggable())
+    await startDrag(result.current, 40)
+    windowMock.setPosition.mockRejectedValueOnce(new Error('window unavailable'))
+    release(result.current)
+    await settlePromises()
+    expect(windowMock.setPosition).toHaveBeenCalledExactlyOnceWith({ x: BASE.x, y: BASE.y })
+    expect(invokeMock).not.toHaveBeenCalledWith('persist_pet_window_position')
+  })
+
+  it('松手冲刷被 16ms 节流跳过的末帧位置', async () => {
+    let callback!: FrameRequestCallback
+    vi.stubGlobal('requestAnimationFrame', (next: FrameRequestCallback) => {
+      callback = next
+      return 1
+    })
+    vi.stubGlobal('cancelAnimationFrame', () => {})
+    const clampPosition = vi.fn(() => ({ x: 1001, y: 501 }))
+    const { result } = renderHook(() => useDraggable({ clampPosition }))
+    await startDrag(result.current, 40)
+    act(() => {
+      callback(4)
+      callback(8)
+    })
+    expect(windowMock.setPosition).toHaveBeenCalledExactlyOnceWith({ x: 1001, y: 501 })
+
+    clampPosition.mockReturnValue({ x: 1002, y: 502 })
+    act(() => {
+      callback(12)
+    })
+    expect(windowMock.setPosition).toHaveBeenCalledTimes(1)
+    release(result.current)
+    await settlePromises()
+
+    expect(windowMock.setPosition).toHaveBeenCalledTimes(2)
+    expect(lastPosition()).toEqual({ x: 1002, y: 502 })
+    expect(invokeMock).toHaveBeenCalledExactlyOnceWith('persist_pet_window_position')
   })
 })

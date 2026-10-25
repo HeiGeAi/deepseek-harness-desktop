@@ -167,7 +167,11 @@ export function useOmitIgnoreCursorEvents(elementRef: RefObject<HTMLElement | nu
     }).catch(error => console.warn('[pet] PET_INPUT_VISIBILITY_FAILED:', error))
 
     const subscriptions = [
-      appWindow.onMoved(() => { void refreshWindowPosition() }),
+      appWindow.onMoved(({ payload }) => {
+        geometryRevision++
+        windowPosition = payload
+        refreshFromState()
+      }),
       appWindow.onResized(() => { void refreshWindowPosition() }),
       listen<RustPetStatus>('pet://status', ({ payload }) => {
         visibilityRevision++

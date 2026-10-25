@@ -84,6 +84,7 @@ const FOLLOW_DAMPING = 30
 /** 单帧积分上限与子步上限：与上游一致，大帧切成 1/120 子步，显式弹簧不会发散。 */
 const MAX_FRAME_DELTA = 0.05
 const MAX_SUBSTEP = 1 / 120
+const SET_POSITION_INTERVAL = 16
 /** 方向停摆阈值：超过此时长没有新的光标样本，方向归零（宠物回到 idle/会话动画）。 */
 const DRAG_DIRECTION_IDLE_TIMEOUT = 350
 /** 会话兜底阈值：超过此时长没有新的光标样本，且左键状态未知/已松开时收尾拖拽。 */
@@ -191,6 +192,7 @@ export function useWindowDraggable(options: UseWindowDraggableOptions): UseWindo
   const rafRef = useRef<{ pause: () => void, resume: () => void } | null>(null)
   /** 最近一次已下发的取整位置：位置没变就不重复发 IPC（按住不动时每帧一次没有意义）。 */
   const appliedRef = useRef<{ x: number, y: number } | undefined>(undefined)
+  const lastSentAtRef = useRef<number | undefined>(undefined)
   const [dragging, setDragging] = useState(false)
   const [direction, setDirection] = useState<DragDirection | undefined>(undefined)
 
@@ -240,6 +242,12 @@ export function useWindowDraggable(options: UseWindowDraggableOptions): UseWindo
     const nextY = Math.round(gesture.y)
     if (appliedRef.current?.x === nextX && appliedRef.current.y === nextY)
       return
+    if (lastSentAtRef.current !== undefined) {
+      lastSentAtRef.current += delta
+      if (lastSentAtRef.current < SET_POSITION_INTERVAL)
+        return
+    }
+    lastSentAtRef.current = 0
     appliedRef.current = { x: nextX, y: nextY }
     void getCurrentWindow()
       .setPosition(new PhysicalPosition(nextX, nextY))
@@ -266,20 +274,20 @@ export function useWindowDraggable(options: UseWindowDraggableOptions): UseWindo
     gestureRef.current = null
     pressedRef.current = undefined
     appliedRef.current = undefined
+    lastSentAtRef.current = undefined
     stopDirectionTimer()
     stopSessionTimer()
     rafRef.current?.pause()
     setDragging(false)
     setDirection(undefined)
-    if (gesture !== null) {
-      // 每个手势只报一次松开：物理层据此结算甩动并清掉「按住」状态（见 hook 文档）。
-      onReleaseRef.current?.()
-    }
     if (gesture?.engaged === true) {
-      // 只落盘、不夹取：位置已由每帧的 `clampPosition` 保证在可见区域内，整窗夹取
-      // 反而会把贴边松手的宠物推开一段（见 hook 文档「收尾写回」）。
-      void invoke('persist_pet_window_position').catch(() => {})
+      void getCurrentWindow()
+        .setPosition(new PhysicalPosition(Math.round(gesture.x), Math.round(gesture.y)))
+        .then(() => invoke('persist_pet_window_position'))
+        .catch(() => {})
     }
+    if (gesture !== null)
+      onReleaseRef.current?.()
   }
 
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>): void {
@@ -347,6 +355,7 @@ export function useWindowDraggable(options: UseWindowDraggableOptions): UseWindo
       gesture.vy = 0
       gesture.engaged = true
       appliedRef.current = undefined
+      lastSentAtRef.current = undefined
       setDragging(true)
       rafRef.current?.resume()
     }

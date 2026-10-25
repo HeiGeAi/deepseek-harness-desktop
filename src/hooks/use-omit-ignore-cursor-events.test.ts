@@ -161,12 +161,48 @@ describe('pet cursor input lifecycle', () => {
     await flush()
     await emit('device-mouse-move', { x: 120, y: 120 })
     expect(requests()).toEqual([])
-    native.position.mockResolvedValue({ x: 400, y: 400 })
-    await emit('moved', {})
+
+    await emit('moved', { x: 400, y: 400 })
     expect(requests()).toEqual([true])
-    native.position.mockResolvedValue({ x: 100, y: 100 })
-    await emit('moved', {})
+    await emit('moved', { x: 100, y: 100 })
     expect(requests()).toEqual([true, false])
+  })
+
+  it('uses the moved event payload instead of an innerPosition round-trip', async () => {
+    renderHook(() => useOmitIgnoreCursorEvents({ current: element }))
+    await flush()
+    await emit('device-mouse-move', { x: 120, y: 120 })
+    expect(requests()).toEqual([])
+
+    await emit('moved', { x: 400, y: 400 })
+    expect(requests()).toEqual([true])
+    expect(native.position).toHaveBeenCalledTimes(1)
+
+    await emit('moved', { x: 100, y: 100 })
+    expect(requests()).toEqual([true, false])
+    expect(native.position).toHaveBeenCalledTimes(1)
+  })
+
+  it('discards an in-flight innerPosition result that lands after a moved event', async () => {
+    const mountPosition = deferred<{ x: number, y: number }>()
+    const cursorPosition = deferred<{ x: number, y: number }>()
+    native.position.mockReturnValueOnce(mountPosition.promise).mockReturnValueOnce(cursorPosition.promise)
+    renderHook(() => useOmitIgnoreCursorEvents({ current: element }))
+    await flush()
+    await emit('device-mouse-move', { x: 120, y: 120 })
+    expect(requests()).toEqual([])
+
+    await emit('moved', { x: 400, y: 400 })
+    expect(requests()).toEqual([true])
+
+    await act(async () => {
+      mountPosition.resolve({ x: 100, y: 100 })
+      cursorPosition.resolve({ x: 100, y: 100 })
+    })
+    expect(requests()).toEqual([true])
+
+    await emit('device-mouse-move', { x: 120, y: 120 })
+    expect(requests()).toEqual([true])
   })
 
   it('retests a stationary cursor after resizing the hitbox', async () => {

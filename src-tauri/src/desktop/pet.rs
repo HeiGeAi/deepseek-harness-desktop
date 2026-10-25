@@ -24,6 +24,8 @@
 
 use crate::config::{store_dat_file_name, STORE_PET_WINDOW_STATE_KEY};
 use serde::{Deserialize, Serialize};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use tauri::{
     AppHandle, Manager, PhysicalPosition, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
     Window,
@@ -97,6 +99,9 @@ pub fn save_pet_window_position<R: Runtime>(app: &AppHandle<R>, position: &PetWi
 /// 采样当前桌宠窗口位置并保存（窗口 Moved 时由 builder 调用）。
 ///
 /// 接收基础 `Window`（`on_window_event` 回调类型），仅需其外部位与可见性。
+///
+/// 拖动期间每个 `Moved` 都会进到这里（高刷屏上每秒数百次），而 `store.save()` 是
+/// 同步整文件写盘 —— 逐事件落盘会以同等频率阻塞主线程，正是拖动卡顿的放大器。
 pub fn save_pet_window_geometry<R: Runtime>(window: &Window<R>) {
     // 窗口未显示或正在全屏时采样到的可能是瞬态/无意义的位置，跳过。
     if !window.is_visible().unwrap_or(false) {
@@ -106,13 +111,40 @@ pub fn save_pet_window_geometry<R: Runtime>(window: &Window<R>) {
         return;
     };
     let app = window.app_handle().clone();
-    save_pet_window_position(
+    save_pet_window_position_throttled(
         &app,
         &PetWindowPosition {
             x: Some(pos.x),
             y: Some(pos.y),
         },
     );
+}
+
+/// 几何落盘节流间隔：拖动中每秒数百个 Moved，写盘压到 ~2 次/秒足够。
+const PET_GEOMETRY_SAVE_INTERVAL: Duration = Duration::from_millis(500);
+
+static PET_GEOMETRY_SAVE: Mutex<Option<(Instant, PetWindowPosition)>> = Mutex::new(None);
+
+/// 节流版几何落盘：节流窗口内只更新暂存值，间隔到了才真正写盘。
+fn save_pet_window_position_throttled<R: Runtime>(
+    app: &AppHandle<R>,
+    position: &PetWindowPosition,
+) {
+    let mut pending = PET_GEOMETRY_SAVE
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let now = Instant::now();
+    if let Some((last, slot)) = pending.as_mut() {
+        *slot = position.clone();
+        if now.duration_since(*last) < PET_GEOMETRY_SAVE_INTERVAL {
+            return;
+        }
+        *last = now;
+    } else {
+        *pending = Some((now, position.clone()));
+    }
+    drop(pending);
+    save_pet_window_position(app, position);
 }
 
 /// 读取宠物大小百分比（设置持久化值；缺省回落默认，越界收敛进合法区间）。
@@ -383,6 +415,10 @@ pub fn persist_pet_window_position<R: Runtime>(app: &AppHandle<R>) -> Result<(),
             y: Some(current.y),
         },
     );
+    PET_GEOMETRY_SAVE
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .take();
     Ok(())
 }
 
@@ -559,6 +595,9 @@ fn place_pet_at_default<R: Runtime>(window: &WebviewWindow<R>) {
 pub fn set_pet_window_visible<R: Runtime>(app: &AppHandle<R>, visible: bool) -> Result<(), String> {
     if !visible {
         if let Some(window) = app.get_webview_window(PET_WINDOW_LABEL) {
+            if let Err(error) = persist_pet_window_position(app) {
+                log::warn!("[pet] PET_POSITION_PERSIST_FAILED: {error}");
+            }
             window
                 .destroy()
                 .map_err(|error| format!("PET_WINDOW_DESTROY_FAILED: {error}"))?;
