@@ -165,10 +165,18 @@ pub fn start_pet_mouse_stream(window: WebviewWindow, state: State<'_, PetMouseSt
                     .clone();
                 if let Some(target) = target {
                     if let Some(pos) = position {
-                        let _ = target.emit(PET_MOUSE_MOVE_EVENT, pos);
+                        let _ = target.emit_to(
+                            crate::desktop::pet::PET_WINDOW_LABEL,
+                            PET_MOUSE_MOVE_EVENT,
+                            pos,
+                        );
                     }
                     if let Some(pressed) = button {
-                        let _ = target.emit(PET_MOUSE_BUTTON_EVENT, MouseButtonState { pressed });
+                        let _ = target.emit_to(
+                            crate::desktop::pet::PET_WINDOW_LABEL,
+                            PET_MOUSE_BUTTON_EVENT,
+                            MouseButtonState { pressed },
+                        );
                     }
                 }
             }

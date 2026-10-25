@@ -65,6 +65,26 @@ pub fn run() -> Result<(), String> {
         // 同上，logger::init() 尚未执行，只能用 eprintln
         eprintln!("[wayland] set GDK_BACKEND=x11 so the pet window can stay on top (issue #649)");
     }
+    // 在强制 XWayland 之后判定，避免对已切到 x11 的用户应用 issue #1234 的规避。
+    if should_disable_dmabuf_renderer(
+        &std::env::var("WAYLAND_DISPLAY").unwrap_or_default(),
+        &std::env::var("WAYLAND_SOCKET").unwrap_or_default(),
+        &std::env::var("GDK_BACKEND").unwrap_or_default(),
+        nvidia_driver_loaded(),
+        std::env::var_os("WAYLAND_DISPLAY").is_none()
+            && std::env::var_os("XDG_RUNTIME_DIR")
+                .filter(|directory| !directory.is_empty())
+                .is_some_and(|directory| {
+                    std::path::Path::new(&directory).join("wayland-0").exists()
+                }),
+    ) && std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none()
+    {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        // 同上，logger::init() 尚未执行，只能用 eprintln
+        eprintln!(
+            "[wayland] set WEBKIT_DISABLE_DMABUF_RENDERER for NVIDIA on Wayland (issue #1234)"
+        );
+    }
     // 桌宠 VP9-alpha 视频改走软件解码（见 `vpx_va_rank_override`）。必须在任何 WebView
     // 建出之前设置：WebKitWebProcess 启动时继承环境，GStreamer 初始化时读一次。
     #[cfg(target_os = "linux")]
@@ -174,6 +194,24 @@ pub fn run() -> Result<(), String> {
 /// AppImage 运行时必带 `APPIMAGE` 环境变量（runtime 规范），以此判定打包形态。
 fn should_apply_wayland_egl_workaround(session_type: &str, appimage_present: bool) -> bool {
     session_type == "wayland" && appimage_present
+}
+
+/// issue #1234：只关 DMABUF、保留合成；后端列表可能回落到 Wayland，仅排除纯 x11。
+pub(crate) fn should_disable_dmabuf_renderer(
+    wayland_display: &str,
+    wayland_socket: &str,
+    gdk_backend: &str,
+    nvidia_driver: bool,
+    default_socket_present: bool,
+) -> bool {
+    nvidia_driver
+        && (!wayland_display.is_empty() || !wayland_socket.is_empty() || default_socket_present)
+        && gdk_backend != "x11"
+}
+
+/// nvidia-open 与闭源内核模块共用用户态渲染栈，均需规避 issue #1234；nouveau 不匹配。
+fn nvidia_driver_loaded() -> bool {
+    cfg!(target_os = "linux") && std::path::Path::new("/proc/driver/nvidia/version").exists()
 }
 
 /// 桌宠窗口的置顶与绝对定位能力是否可用。
@@ -333,6 +371,42 @@ mod tests {
         assert!(!should_force_xwayland(true, "", "", ":0"));
         // macOS / Windows：三个变量都为空，GDK_BACKEND 在那里也无意义。
         assert!(!should_force_xwayland(true, "", "", ""));
+    }
+
+    #[test]
+    fn dmabuf_disabled_only_for_nvidia_on_native_wayland() {
+        for (display, socket, backend, nvidia, expected) in [
+            ("wayland-0", "", "", true, true),
+            ("wayland-0", "", "wayland", true, true),
+            ("wayland-0", "", "wayland,x11", true, true),
+            ("wayland-0", "", "x11,wayland", true, true),
+            ("", "4", "", true, true),
+            ("wayland-0", "", "x11", true, false),
+            ("wayland-0", "", "", false, false),
+            ("wayland-0", "", "x11,wayland", false, false),
+            ("", "", "", true, false),
+            ("", "", "wayland", true, false),
+        ] {
+            assert_eq!(
+                should_disable_dmabuf_renderer(display, socket, backend, nvidia, false),
+                expected,
+                "display={display:?}, socket={socket:?}, backend={backend:?}, nvidia={nvidia}"
+            );
+        }
+    }
+
+    #[test]
+    fn dmabuf_detects_default_wayland_socket_without_environment_hints() {
+        assert!(should_disable_dmabuf_renderer("", "", "", true, true));
+        assert!(should_disable_dmabuf_renderer(
+            "",
+            "",
+            "x11,wayland",
+            true,
+            true
+        ));
+        assert!(!should_disable_dmabuf_renderer("", "", "x11", true, true));
+        assert!(!should_disable_dmabuf_renderer("", "", "", false, true));
     }
 
     #[test]
