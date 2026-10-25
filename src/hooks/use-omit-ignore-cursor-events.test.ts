@@ -95,6 +95,22 @@ afterEach(() => {
 })
 
 describe('pet cursor input lifecycle', () => {
+  it('shapes the linux input region to the hitbox instead of toggling click-through', async () => {
+    native.osType.mockReturnValue('linux')
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    })
+    renderHook(() => useOmitIgnoreCursorEvents({ current: element }))
+    await flush()
+    await emit('device-mouse-move', { x: 500, y: 500 })
+    await emit('device-mouse-move', { x: 120, y: 120 })
+    expect(requests()).toEqual([])
+    const regions = native.invoke.mock.calls.filter(([command]) => command === 'set_pet_input_region')
+    expect(regions).toEqual([['set_pet_input_region', { rect: { x: 10, y: 10, width: 100, height: 100 } }]])
+    expect(native.invoke).toHaveBeenCalledWith('start_pet_mouse_stream')
+  })
+
   it('applies outside and inside hit tests without duplicate native writes', async () => {
     renderHook(() => useOmitIgnoreCursorEvents({ current: element }))
     await flush()
